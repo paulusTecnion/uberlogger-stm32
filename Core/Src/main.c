@@ -46,6 +46,8 @@ SPI_HandleTypeDef hspi1;
 DMA_HandleTypeDef hdma_spi1_rx;
 DMA_HandleTypeDef hdma_spi1_tx;
 
+TIM_HandleTypeDef htim3;
+
 /* USER CODE BEGIN PV */
 uint8_t MainState = MAIN_IDLE;
 __IO uint8_t spiDone = 0;
@@ -59,22 +61,31 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
-{
+//void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
+//{
 	// Successfully transmitted values. Set data ready pin to low a
 //	MainState = MAIN_ADC_START;
-	spiDone = 1;
-}
+//	spiDone = 1;
+//}
 
-void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+//void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+//{
+//
+//  Error_Handler();
+//}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  Error_Handler();
+ /* Prevent unused argument(s) compilation warning */
+ UNUSED(htim);
+ HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_SET);
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
@@ -82,7 +93,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     // Conversion Complete & DMA Transfer Complete As Well
     // So The AD_RES Is Now Updated & Let's Move IT To The PWM CCR1
     // Update The PWM Duty Cycle With Latest ADC Conversion Result
-	MainState = MAIN_SPI_START;
+//	if (MainState == MAIN_ADC_CONVERTING)
+//	{
+//		MainState = MAIN_SPI_START;
+//	}
+	HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_RESET);
 
 }
 /* USER CODE END 0 */
@@ -94,9 +109,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t aTxBuffer[BUFFERSIZE];
-	uint8_t aRxBuffer[BUFFERSIZE];
-	uint8_t i = 0;
+//	uint8_t aTxBuffer[BUFFERSIZE];
+//	uint8_t aRxBuffer[BUFFERSIZE];
+//	uint8_t i = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -120,96 +135,104 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_SPI1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(DATA_RDY_DUP_GPIO_Port, DATA_RDY_DUP_Pin, GPIO_PIN_RESET);
-  aTxBuffer[0] = 0x01;
-  aTxBuffer[1] = 0x02;
+//  aTxBuffer[0] = 0x01;
+//  aTxBuffer[1] = 0x02;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
+  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, sizeof(aADCxConvertedData)/sizeof(aADCxConvertedData[0]));
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  switch(MainState)
-		  {
-		  	  case MAIN_IDLE:
-		  		if (HAL_GPIO_ReadPin(ADC_EN_GPIO_Port, ADC_EN_Pin) != GPIO_PIN_SET )
-		  		{
-		  		  Idle_Handler(aTxBuffer, aRxBuffer);
-		  		} else {
-		  			MainState = MAIN_ADC_START;
-		  		}
-		  		  break;
 
-		  	  case MAIN_CONFIG:
-		  		  Config_Handler(aTxBuffer, aRxBuffer);
-		  		  break;
+//	  switch(MainState)
+//		  {
+//		  	  case MAIN_IDLE:
+//		  		if (HAL_GPIO_ReadPin(ADC_EN_GPIO_Port, ADC_EN_Pin) != GPIO_PIN_SET )
+//		  		{
+//		  		  Idle_Handler(aTxBuffer, aRxBuffer);
+//		  		} else {
+//		  			MainState = MAIN_ADC_START;
+//		  		}
+//		  		  break;
+//
+//		  	  case MAIN_CONFIG:
+//		  		  Config_Handler(aTxBuffer, aRxBuffer);
+//		  		  break;
+//
+//		  	  case MAIN_ADC_START:
+//
+//		  		// Check if we are still in ADC Enable mode, if not return to idle.
+//		  			HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_RESET);
+//		  			HAL_GPIO_WritePin(DATA_RDY_DUP_GPIO_Port, DATA_RDY_DUP_Pin, GPIO_PIN_RESET);
+//		  			// trigger this once, then let it go automatically
+//		  			if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, 3) == HAL_OK)
+//		  			{
+//		  				MainState = MAIN_ADC_CONVERTING;
+//		  			}
+//
+//
+//		  		  break;
+//		  	  case MAIN_ADC_CONVERTING:
+//		  		HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_RESET);
+//		  		HAL_GPIO_WritePin(DATA_RDY_DUP_GPIO_Port, DATA_RDY_DUP_Pin, GPIO_PIN_RESET);
+//		  		if (HAL_GPIO_ReadPin(ADC_EN_GPIO_Port, ADC_EN_Pin) != GPIO_PIN_SET )
+//				  {
+//		  				if (HAL_ADC_Stop_DMA(&hadc1) == HAL_OK && HAL_SPI_DMAStop(&hspi1) == HAL_OK)
+//		  				{
+//		  					MainState = MAIN_IDLE;
+//		  				}
+//				  }
+//
+//		  		break;
 
-		  	  case MAIN_ADC_START:
-		  		  // When SPI is done sending/receiving, it sets the state to MAIN_IDLE. Quickly switch to MAIN_ADC_START in case we are still logging.
-				  if (HAL_GPIO_ReadPin(ADC_EN_GPIO_Port, ADC_EN_Pin) != GPIO_PIN_SET )
-				  {
-					  MainState = MAIN_IDLE;
+//		  	  case MAIN_SPI_START:
+//		  		// Copy result
+//				for (i=0; i<(BUFFERSIZE/2); i++)
+//				{
+//		    		aTxBuffer[i] = (uint8_t) aADCxConvertedData[i];
+//		    		aTxBuffer[i+1] = (uint8_t) (aADCxConvertedData[i] >> 8);
+//	//				aTxBuffer[i] = i;
+//				}
+//
+//				if (hspi1.State == HAL_SPI_STATE_BUSY_TX_RX)
+//				{
+//					break;
+//				} else
+//				{
+//					uint8_t retVal = HAL_SPI_TransmitReceive_DMA(&hspi1,  (uint8_t*) aTxBuffer, (uint8_t*) aRxBuffer,  BUFFERSIZE);
+//					if(retVal == HAL_OK)
+//					{
+//						MainState = MAIN_SPI_BUSY;
+//						HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_SET);
+//						HAL_GPIO_WritePin(DATA_RDY_DUP_GPIO_Port, DATA_RDY_DUP_Pin, GPIO_PIN_SET);
+//		//				HAL_GPIO_WritePin(SPI1_HANDSHAKE_DUP_GPIO_Port, SPI1_HANDSHAKE_DUP_Pin, GPIO_PIN_SET);
+//					}
+//				}
+//
+//
+//				break;
+//
+//		  	  case MAIN_SPI_BUSY:
+//		  		  if(spiDone)
+//		  		  {
+//		  			  spiDone = 0;
+//		  			  MainState = MAIN_ADC_CONVERTING;
+//		  		  }
+//			  break;
 
-				  } else {
-					  //	  		if (aRxBuffer[0] == CMD_ADC_EXIT)
-
-	//	  		{
-	//	  			if (Send_OK())
-	//	  			{
-	//	  				MainState = MAIN_IDLE;
-	//	  			}
-	//	  		} else
-		  		// Check if we are still in ADC Enable mode, if not return to idle.
-		  			HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_RESET);
-		  			HAL_GPIO_WritePin(DATA_RDY_DUP_GPIO_Port, DATA_RDY_DUP_Pin, GPIO_PIN_RESET);
-		  			if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, 3) == HAL_OK)
-		  			{
-
-		  				MainState = MAIN_ADC_CONVERTING;
-		  			}
-		  		}
-
-		  		  break;
-
-		  	  case MAIN_SPI_START:
-		  		// Copy result
-				for (i=0; i<(BUFFERSIZE/2); i++)
-				{
-		    		aTxBuffer[i] = (uint8_t) aADCxConvertedData[i];
-		    		aTxBuffer[i+1] = (uint8_t) (aADCxConvertedData[i] >> 8);
-	//				aTxBuffer[i] = i;
-				}
-
-				uint8_t retVal = HAL_SPI_TransmitReceive_DMA(&hspi1,  (uint8_t*) aTxBuffer, (uint8_t*) aRxBuffer,  BUFFERSIZE);
-				if(retVal == HAL_OK)
-				{
-					MainState = MAIN_SPI_BUSY;
-					HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_SET);
-	//				HAL_GPIO_WritePin(SPI1_HANDSHAKE_DUP_GPIO_Port, SPI1_HANDSHAKE_DUP_Pin, GPIO_PIN_SET);
-				}
-	//			}  else { /* Transfer error in transmission process */
-	//			  Error_Handler();
-	//			}
-
-				break;
-
-		  	  case MAIN_SPI_BUSY:
-		  	  case MAIN_ADC_CONVERTING:
-		  		  if(spiDone)
-		  		  {
-		  			  spiDone = 0;
-		  			  MainState = MAIN_ADC_START;
-		  		  }
-			  break;
-
-		      default :
-		        Error_Handler();
-		      break;
-		    }
+//		      default :
+//		        Error_Handler();
+//		      break;
+//		    }
 
     /* USER CODE END WHILE */
 
@@ -273,6 +296,7 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
+  ADC_AnalogWDGConfTypeDef AnalogWDGConfig = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -282,20 +306,20 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV16;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.NbrOfConversion = 3;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -305,11 +329,42 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
 
+  /** Configure Analog WatchDog 1
+  */
+  AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
+  AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_SINGLE_REG;
+  AnalogWDGConfig.Channel = ADC_CHANNEL_0;
+  AnalogWDGConfig.ITMode = DISABLE;
+  AnalogWDGConfig.HighThreshold = 0;
+  AnalogWDGConfig.LowThreshold = 0;
+  if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /** Configure Regular Channel
   */
   sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -356,6 +411,51 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 6400;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
