@@ -103,6 +103,7 @@ uint8_t Send_NOK(void);
 #define DATA_RDY_GPIO_Port GPIOB
 #define ADC_EN_Pin GPIO_PIN_5
 #define ADC_EN_GPIO_Port GPIOB
+#define ADC_EN_EXTI_IRQn EXTI4_15_IRQn
 #define DATA_RDY_DUP_Pin GPIO_PIN_6
 #define DATA_RDY_DUP_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */

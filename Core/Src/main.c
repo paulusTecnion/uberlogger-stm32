@@ -102,6 +102,25 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 }
 
 
+void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == GPIO_PIN_5)
+	{
+			HAL_TIM_Base_Start_IT(&htim3);
+			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, sizeof(aADCxConvertedData)/sizeof(aADCxConvertedData[0]));
+	}
+}
+
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == GPIO_PIN_5)
+	{
+		HAL_TIM_Base_Stop_IT(&htim3);
+		HAL_ADC_Stop_DMA(&hadc1);
+	}
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -145,8 +164,7 @@ int main(void)
 //  aTxBuffer[1] = 0x02;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_TIM_Base_Start_IT(&htim3);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, sizeof(aADCxConvertedData)/sizeof(aADCxConvertedData[0]));
+
 
   /* USER CODE END 2 */
 
@@ -316,7 +334,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 3;
+  hadc1.Init.NbrOfConversion = 4;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
@@ -367,6 +385,14 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -499,9 +525,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, DATA_RDY_Pin|DATA_RDY_DUP_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PB10 PB11 PB12 PB13
-                           PB14 PB15 ADC_EN_Pin */
+                           PB14 PB15 */
   GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13
-                          |GPIO_PIN_14|GPIO_PIN_15|ADC_EN_Pin;
+                          |GPIO_PIN_14|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -524,6 +550,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ADC_EN_Pin */
+  GPIO_InitStruct.Pin = ADC_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(ADC_EN_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
 }
 

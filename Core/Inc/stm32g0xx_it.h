@@ -51,6 +51,7 @@ void HardFault_Handler(void);
 void SVC_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
+void EXTI4_15_IRQHandler(void);
 void DMA1_Channel2_3_IRQHandler(void);
 void DMA1_Ch4_5_DMAMUX1_OVR_IRQHandler(void);
 void TIM3_IRQHandler(void);
