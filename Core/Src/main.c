@@ -51,7 +51,19 @@ TIM_HandleTypeDef htim3;
 uint8_t MainState = MAIN_IDLE;
 __IO uint8_t spiDone = 0;
 
-static uint16_t  aADCxConvertedData[3];
+union _adc_result{
+	uint16_t  aADCxConvertedData[2];
+	uint8_t aTxBuffer[4];
+};
+
+union _t{
+	uint16_t  t16[2];
+	uint8_t t8[4];
+};
+
+static union _adc_result adc_result;
+static union _t t;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -86,7 +98,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
  /* Prevent unused argument(s) compilation warning */
  UNUSED(htim);
- HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_SET);
+
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
@@ -98,7 +110,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 //	{
 //		MainState = MAIN_SPI_START;
 //	}
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) aADCxConvertedData,   3);
+	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   4);
+	HAL_GPIO_WritePin(DATA_RDY_GPIO_Port, DATA_RDY_Pin, GPIO_PIN_SET);
+
 }
 
 
@@ -107,7 +121,7 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 	if (GPIO_Pin == GPIO_PIN_5)
 	{
 			HAL_TIM_Base_Start_IT(&htim3);
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)aADCxConvertedData, sizeof(aADCxConvertedData)/sizeof(aADCxConvertedData[0]));
+			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.aADCxConvertedData, sizeof(adc_result.aADCxConvertedData)/sizeof(adc_result.aADCxConvertedData[0]));
 	}
 }
 
@@ -164,7 +178,10 @@ int main(void)
 //  aTxBuffer[1] = 0x02;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
-
+  t.t8[0] = 65; // = A
+  t.t8[1] = 66; // = B
+  t.t8[2] = 67; //= C
+  t.t8[3] = 68; // = D
 
   /* USER CODE END 2 */
 
@@ -334,7 +351,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 4;
+  hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
@@ -364,7 +381,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
@@ -376,23 +393,6 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_2;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_0;
-  sConfig.Rank = ADC_REGULAR_RANK_3;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -463,7 +463,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 64000;
+  htim3.Init.Period = 16000;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
