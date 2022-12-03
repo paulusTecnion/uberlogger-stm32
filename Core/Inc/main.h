@@ -40,23 +40,15 @@ extern "C" {
 enum  {
 	MAIN_IDLE = 0x01,
 	MAIN_CONFIG,
-	MAIN_ADC_START,
-	MAIN_ADC_CONVERTING,
-	MAIN_SPI_START,
-	MAIN_SPI_BUSY,
-	MAIN_COMPLETE,
 	MAIN_ERROR
 };
 
 enum  {
-	CMD_NO_CMD = 0x00,
-	CMD_ADC_START = 0x01,
-	CMD_ADC_EXIT,
-	CMD_CONFIG_START,
-	CMD_CONFIG_EXIT,
-	CMD_CONFIG_SET_SFREQ,
-	CMD_CONFIG_SET_ADC_BITS,
-	CMD_CONFIG_SET_DAC_PWM
+	CMD_NOP = 0x00,
+	CMD_SETTINGS_MODE = 0x01,
+	CMD_MEASURE_MODE,
+	CMD_SET_RESOLUTION,
+	CMD_SET_SAMPLE_RATE
 };
 
 
@@ -81,8 +73,8 @@ enum   {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void Config_Handler(uint8_t* aTxBuffer, uint8_t* aRxBuffer);
-void Idle_Handler(uint8_t* aTxBuffer, uint8_t* aRxBuffer);
+void Config_Handler();
+void Idle_Handler();
 
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
 
@@ -91,21 +83,32 @@ uint8_t Send_NOK(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define AIN_RANGE_SELECT_CLK_Pin GPIO_PIN_15
-#define AIN_RANGE_SELECT_CLK_GPIO_Port GPIOA
-#define AIN_RANGE_SELECT_CLR_Pin GPIO_PIN_0
+#define DIGITAL_IN_0_Pin GPIO_PIN_10
+#define DIGITAL_IN_0_GPIO_Port GPIOB
+#define DIGITAL_IN_1_Pin GPIO_PIN_11
+#define DIGITAL_IN_1_GPIO_Port GPIOB
+#define DIGITAL_IN_2_Pin GPIO_PIN_12
+#define DIGITAL_IN_2_GPIO_Port GPIOB
+#define DIGITAL_IN_3_Pin GPIO_PIN_13
+#define DIGITAL_IN_3_GPIO_Port GPIOB
+#define DIGITAL_IN_4_Pin GPIO_PIN_14
+#define DIGITAL_IN_4_GPIO_Port GPIOB
+#define DIGITAL_IN_5_Pin GPIO_PIN_15
+#define DIGITAL_IN_5_GPIO_Port GPIOB
+#define SPI1_STM_CS_Pin GPIO_PIN_15
+#define SPI1_STM_CS_GPIO_Port GPIOA
+#define AIN_RANGE_SELECT_CLK_Pin GPIO_PIN_0
+#define AIN_RANGE_SELECT_CLK_GPIO_Port GPIOD
+#define AIN_RANGE_SELECT_CLR_Pin GPIO_PIN_1
 #define AIN_RANGE_SELECT_CLR_GPIO_Port GPIOD
-#define AIN_PULLUP_SELECT_CLK_Pin GPIO_PIN_1
-#define AIN_PULLUP_SELECT_CLK_GPIO_Port GPIOD
-#define AIN_PULLUP_SELECT_CLR_Pin GPIO_PIN_2
+#define AIN_PULLUP_SELECT_CLR_Pin GPIO_PIN_3
 #define AIN_PULLUP_SELECT_CLR_GPIO_Port GPIOD
-#define DATA_RDY_Pin GPIO_PIN_4
-#define DATA_RDY_GPIO_Port GPIOB
-#define ADC_EN_Pin GPIO_PIN_5
-#define ADC_EN_GPIO_Port GPIOB
-#define ADC_EN_EXTI_IRQn EXTI4_15_IRQn
-#define DATA_RDY_DUP_Pin GPIO_PIN_6
-#define DATA_RDY_DUP_GPIO_Port GPIOB
+#define STM_DATA_RDY_Pin GPIO_PIN_6
+#define STM_DATA_RDY_GPIO_Port GPIOB
+#define STM_ADC_EN_Pin GPIO_PIN_7
+#define STM_ADC_EN_GPIO_Port GPIOB
+#define STM_ADC_EN_EXTI_IRQn EXTI4_15_IRQn
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
