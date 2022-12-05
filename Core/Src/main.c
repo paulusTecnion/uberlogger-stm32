@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "esp32_interface.h"
+#include "stdint.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -296,7 +297,10 @@ static void MX_ADC1_Init(void)
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
-  hadc1.Init.OversamplingMode = DISABLE;
+  hadc1.Init.OversamplingMode = ENABLE;
+  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
+  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
+  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -552,6 +556,141 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
+{
+	// Stop timer3
+	HAL_TIM_Base_Stop_IT(&htim3);
+
+	// Reconfig the timer
+	 htim3.Init.Prescaler = 100;
+	 htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+	 htim3.Init.Period = 65535;
+	 htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	 htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+	 switch(sampleFreq)
+	 {
+	 case ADC_SAMPLE_RATE_1Hz:
+
+		 break;
+
+
+	 case ADC_SAMPLE_RATE_10Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_25Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_50Hz:
+
+		 break;
+	 case 	ADC_SAMPLE_RATE_100Hz:
+
+		 break;
+
+	 case 	ADC_SAMPLE_RATE_200Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_400Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_500Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_1000Hz:
+
+	 break;
+
+	 case ADC_SAMPLE_RATE_2000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_4000Hz:
+		 break;
+	 case ADC_SAMPLE_RATE_5000Hz:
+		 break;
+
+	 case ADC_SAMPLE_RATE_8000Hz:
+
+		 break;
+	 case ADC_SAMPLE_RATE_10000Hz:
+
+		 break;
+	 case ADC_SAMPLE_RATE_20000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_40000Hz:
+
+		 break;
+	 case ADC_SAMPLE_RATE_50000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_100000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_250000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_500000Hz:
+
+		 break;
+
+	 case ADC_SAMPLE_RATE_1000000Hz:
+
+		 break;
+
+	 }
+
+	 return 1;
+}
+
+static uint8_t Config_Set_Resolution(uint8_t resolution)
+{
+	switch (resolution)
+	{
+
+
+	case ADC_16_BITS:
+		hadc1.Init.OversamplingMode = ENABLE;
+		  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
+		  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
+		  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+		break;
+
+	//case ADC_12_BITS:
+	default:
+		hadc1.Init.OversamplingMode = DISABLE;
+		hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+		 hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
+		break;
+
+
+	}
+
+	return 1;
+
+}
+
+
+static void ADC_Reinit()
+{
+	  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+	  {
+	    Error_Handler();
+	  }
+
+}
+
 void Config_Handler()
 {
 	uint8_t retVal;
@@ -578,7 +717,13 @@ void Config_Handler()
 			  break;
 
 			  case CMD_SET_RESOLUTION:
-				  Send_OK();
+				  if (Config_Set_Resolution(retVal))
+				  {
+					  Send_OK();
+				  } else {
+					  Send_NOK();
+				  }
+
 				  break;
 
 //			  case CMD_CONFIG_SET_DAC_PWM:
@@ -586,6 +731,8 @@ void Config_Handler()
 //				  break;
 
 			  case CMD_MEASURE_MODE:
+				  // Re-init ADC
+				  ADC_Reinit();
 				  if (Send_OK())
 				  {
 					  MainState = MAIN_IDLE;
@@ -643,10 +790,10 @@ void Idle_Handler()
 	}
 }
 
-uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
-{
-	return 1;
-}
+//uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
+//{
+//	return 1;
+//}
 
 
 

@@ -76,7 +76,7 @@ void Error_Handler(void);
 void Config_Handler();
 void Idle_Handler();
 
-uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
+
 
 uint8_t Send_OK(void);
 uint8_t Send_NOK(void);
