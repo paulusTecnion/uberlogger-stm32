@@ -90,15 +90,25 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi)
 	// Successfully transmitted values. Set data ready pin to low a
 //	MainState = MAIN_ADC_START;
 //	spiDone = 1;
-	HAL_SPI_DMAStop(&hspi1);
+//	HAL_SPI_DMAStop(&hspi1);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 }
 
-//void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
-//{
-//
-//  Error_Handler();
-//}
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
+{
+	// Successfully transmitted values. Set data ready pin to low a
+//	MainState = MAIN_ADC_START;
+//	spiDone = 1;
+//	HAL_SPI_DMAStop(&hspi1);
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+}
+
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+	HAL_SPI_DMAStop(&hspi1);
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+  //Error_Handler();
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -410,7 +420,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_HARD_INPUT;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -448,7 +458,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 100;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = 64000;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -736,7 +746,7 @@ static void ADC_Reinit()
 void Config_Handler()
 {
 	uint8_t retVal;
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 1, 1000);
+	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
 	  if( retVal == HAL_ERROR)
 	  {
 		  /* Transfer error in transmission process */
@@ -746,31 +756,9 @@ void Config_Handler()
 	  {
 		  switch(RxBuffer[0])
 		  {
-			  case CMD_SET_SAMPLE_RATE:
-				// receive setting
-				if (Config_Set_Sample_freq(retVal))
-				{
-					Send_OK();
-				} else {
-					Send_NOK();
-				}
-
-
-			  break;
-
-			  case CMD_SET_RESOLUTION:
-				  if (Config_Set_Resolution(retVal))
-				  {
-					  Send_OK();
-				  } else {
-					  Send_NOK();
-				  }
+			  case CMD_NOP:
 
 				  break;
-
-//			  case CMD_CONFIG_SET_DAC_PWM:
-//
-//				  break;
 
 			  case CMD_MEASURE_MODE:
 				  // Re-init ADC
@@ -781,9 +769,32 @@ void Config_Handler()
 				  }
 				  break;
 
-			  case CMD_NOP:
+
+
+			  case CMD_SET_RESOLUTION:
+				  if (Config_Set_Resolution(RxBuffer[1]))
+				  {
+					  Send_OK();
+				  } else {
+					  Send_NOK();
+				  }
 
 				  break;
+
+
+			  case CMD_SET_SAMPLE_RATE:
+			 				// receive setting
+				if (Config_Set_Sample_freq(RxBuffer[1]))
+				{
+					Send_OK();
+				} else {
+					Send_NOK();
+				}
+			 	break;
+
+//			  case CMD_CONFIG_SET_DAC_PWM:
+//
+//				  break;
 
 			  default:
 				 Send_NOK();
@@ -798,7 +809,7 @@ void Idle_Handler()
 	uint8_t retVal;
 
 	// Blocking SPI read with 1000 clock cycles timeout.
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 1, 1000);
+	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
 	if( retVal == HAL_ERROR)
 	{
 	  /* Transfer error in transmission process */
@@ -841,9 +852,14 @@ void Idle_Handler()
 
 uint8_t Send_OK(void)
 {
-	uint8_t t = RESP_OK;
+
+	t.t8[0] = RESP_OK;
 	HAL_StatusTypeDef errorcode;
-	errorcode = HAL_SPI_Transmit(&hspi1, &t, 1, 1000);
+
+	errorcode = HAL_SPI_Transmit_DMA(&hspi1, t.t8, 1);
+
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 	if (errorcode == HAL_OK)
 	{
 		return 1;
@@ -853,9 +869,13 @@ uint8_t Send_OK(void)
 }
 uint8_t Send_NOK(void)
 {
-	uint8_t t = RESP_NOK;
+
+	t.t8[0]= RESP_NOK;
 	HAL_StatusTypeDef errorcode;
-	errorcode = HAL_SPI_Transmit(&hspi1, &t, 1, 1000);
+
+	errorcode = HAL_SPI_Transmit_DMA(&hspi1, t.t8, 1);
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 	if (errorcode == HAL_OK)
 	{
 		return 1;
