@@ -135,19 +135,20 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 //	{
 //		MainState = MAIN_SPI_START;
 //	}
+//
+//	for (int j = 0; j < 8; j++)
+//	{
+//		t.t16[j] = counter;
+//		counter++;
+//		if (counter > 4095)
+//		{
+//			counter = 0;
+//		}
+//
+//	}
 
-	for (int j = 0; j < 8; j++)
-	{
-		t.t16[j] = counter;
-		counter++;
-		if (counter > 4095)
-		{
-			counter = 0;
-		}
-
-	}
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
-//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   TESTBUFFERSIZE*2);
+//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
+	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   TESTBUFFERSIZE*2);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
@@ -159,7 +160,7 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 	{
 			logging_en = 1;
 			HAL_TIM_Base_Start_IT(&htim3);
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, sizeof(adc_result.t16)/sizeof(adc_result.t16[0]));
+			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, TESTBUFFERSIZE);
 	}
 }
 
@@ -167,8 +168,10 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
+		HAL_SPI_DMAStop(&hspi1);
 		HAL_TIM_Base_Stop_IT(&htim3);
 		HAL_ADC_Stop_DMA(&hadc1);
+
 	}
 }
 
@@ -312,7 +315,6 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
-  ADC_AnalogWDGConfTypeDef AnalogWDGConfig = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -345,19 +347,6 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
 
-  /** Configure Analog WatchDog 1
-  */
-  AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
-  AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_SINGLE_REG;
-  AnalogWDGConfig.Channel = ADC_CHANNEL_0;
-  AnalogWDGConfig.ITMode = DISABLE;
-  AnalogWDGConfig.HighThreshold = 0;
-  AnalogWDGConfig.LowThreshold = 0;
-  if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
   /** Configure Regular Channel
   */
   sConfig.Channel = ADC_CHANNEL_0;
@@ -370,6 +359,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -378,6 +368,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -386,6 +377,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -394,6 +386,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -402,6 +395,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_6;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -410,6 +404,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_6;
   sConfig.Rank = ADC_REGULAR_RANK_7;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -418,6 +413,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = ADC_REGULAR_RANK_8;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -732,6 +728,11 @@ static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 	 }
 
+	 // Reinit timer
+	 if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+	  {
+	    return 0;
+	  }
 
 
 	 return 1;
@@ -777,7 +778,7 @@ static void ADC_Reinit()
 void Config_Handler()
 {
 	uint8_t retVal;
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
+	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 250);
 
 	  if( retVal == HAL_ERROR)
 	  {
@@ -915,7 +916,7 @@ void Idle_Handler()
 //		msgRx = 0;
 //	}
 //	 Blocking SPI read with 1000 clock cycles timeout.
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
+	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 250);
 	if( retVal == HAL_ERROR)
 	{
 	  /* Transfer error in transmission process */
