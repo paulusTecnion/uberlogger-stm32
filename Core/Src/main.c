@@ -52,6 +52,7 @@ TIM_HandleTypeDef htim3;
 /* USER CODE BEGIN PV */
 uint8_t MainState = MAIN_IDLE;
 uint8_t logging_en = 0;
+uint8_t msgRx = 0;
 uint8_t RxBuffer[1];
 
 
@@ -100,8 +101,16 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
 //	MainState = MAIN_ADC_START;
 //	spiDone = 1;
 //	HAL_SPI_DMAStop(&hspi1);
+	msgRx = 1;
+	HAL_SPI_DMAStop(&hspi1);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 }
+
+//void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef * hspi)
+//{
+//	msgRx = 1;
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//}
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
@@ -163,6 +172,22 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 	}
 }
 
+
+uint8_t HAL_SPI_Send_cmd(spi_cmd_resp_t cmd, spi_cmd_esp_t cmd_esp)
+{
+	t.t8[0] = (uint8_t)cmd;
+	t.t8[1] = cmd_esp;
+	HAL_StatusTypeDef errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+	if (errorcode == HAL_OK)
+	{
+		// Indicate to esp32 that data is ready
+		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+		// wait until transfer is done. Note that on a hardware level this may not have been sent yet!
+		while(hspi1.State == HAL_SPI_STATE_BUSY_TX_RX);
+	}
+	return errorcode;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -208,6 +233,12 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+	  // Always receive
+//	  if (!logging_en && hspi1.State == HAL_SPI_STATE_READY && msgRx == 0)
+//	  {
+//		  HAL_SPI_Receive_DMA(&hspi1, RxBuffer, 2);
+//	  }
 	  switch(MainState)
 	  {
 		  case MAIN_IDLE:
@@ -747,6 +778,7 @@ void Config_Handler()
 {
 	uint8_t retVal;
 	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
+
 	  if( retVal == HAL_ERROR)
 	  {
 		  /* Transfer error in transmission process */
@@ -757,26 +789,24 @@ void Config_Handler()
 		  switch(RxBuffer[0])
 		  {
 			  case CMD_NOP:
-
+				  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 				  break;
 
 			  case CMD_MEASURE_MODE:
 				  // Re-init ADC
-				  ADC_Reinit();
-				  if (Send_OK())
+				  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_MEASURE_MODE) == HAL_OK)
 				  {
+					  ADC_Reinit();
 					  MainState = MAIN_IDLE;
 				  }
 				  break;
 
-
-
 			  case CMD_SET_RESOLUTION:
 				  if (Config_Set_Resolution(RxBuffer[1]))
 				  {
-					  Send_OK();
+					  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_RESOLUTION);
 				  } else {
-					  Send_NOK();
+					  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_RESOLUTION);
 				  }
 
 				  break;
@@ -786,9 +816,9 @@ void Config_Handler()
 			 				// receive setting
 				if (Config_Set_Sample_freq(RxBuffer[1]))
 				{
-					Send_OK();
+					HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_SAMPLE_RATE);
 				} else {
-					Send_NOK();
+					HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_SAMPLE_RATE);
 				}
 			 	break;
 
@@ -797,18 +827,94 @@ void Config_Handler()
 //				  break;
 
 			  default:
-				 Send_NOK();
+				  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
 
 		  }
 	  }
+
+//	if (msgRx)
+//	{
+//		switch(RxBuffer[0])
+//		{
+//			case CMD_NOP:
+//
+//			break;
+//
+//			case CMD_MEASURE_MODE:
+//			// Re-init ADC
+//			ADC_Reinit();
+//			if (Send_OK())
+//			{
+//				MainState = MAIN_IDLE;
+//			}
+//			break;
+//
+//
+//
+//			case CMD_SET_RESOLUTION:
+//				if (Config_Set_Resolution(RxBuffer[1]))
+//				{
+//					Send_OK();
+//				} else {
+//					Send_NOK();
+//				}
+//
+//			break;
+//
+//
+//			case CMD_SET_SAMPLE_RATE:
+//			// receive setting
+//			if (Config_Set_Sample_freq(RxBuffer[1]))
+//			{
+//				Send_OK();
+//			} else {
+//				Send_NOK();
+//			}
+//			break;
+//
+//			//			  case CMD_CONFIG_SET_DAC_PWM:
+//			//
+//			//				  break;
+//
+//			default:
+//			Send_NOK();
+//		}
+//	msgRx = 0;
+//	}
+
 }
-
-
 void Idle_Handler()
 {
 	uint8_t retVal;
 
-	// Blocking SPI read with 1000 clock cycles timeout.
+//	if (msgRx)
+//	{
+//		switch(RxBuffer[0])
+//			  {
+//				  //case CMD_ADC_START:
+//					//if (Send_OK())
+//					//{
+//					//	MainState = MAIN_ADC_START;
+//					//}
+//
+//				  case CMD_SETTINGS_MODE:
+//					  if (Send_OK())
+//					  {
+//						MainState = MAIN_CONFIG;
+//					  }
+//
+//				  break;
+//
+//				  case CMD_NOP:
+//					  break;
+//
+//				  default:
+//					Send_NOK();
+//
+//			  }
+//		msgRx = 0;
+//	}
+//	 Blocking SPI read with 1000 clock cycles timeout.
 	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 1000);
 	if( retVal == HAL_ERROR)
 	{
@@ -826,7 +932,7 @@ void Idle_Handler()
 			//}
 
 		  case CMD_SETTINGS_MODE:
-			  if (Send_OK())
+			  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SETTINGS_MODE) == HAL_OK)
 			  {
 				MainState = MAIN_CONFIG;
 			  }
@@ -834,10 +940,11 @@ void Idle_Handler()
 		  break;
 
 		  case CMD_NOP:
+			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 			  break;
 
 		  default:
-			Send_NOK();
+			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
 
 	  }
 	}
@@ -849,40 +956,42 @@ void Idle_Handler()
 //}
 
 
-
-uint8_t Send_OK(void)
-{
-
-	t.t8[0] = RESP_OK;
-	HAL_StatusTypeDef errorcode;
-
-	errorcode = HAL_SPI_Transmit_DMA(&hspi1, t.t8, 1);
-
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-	if (errorcode == HAL_OK)
-	{
-		return 1;
-	} else {
-		return 0;
-	}
-}
-uint8_t Send_NOK(void)
-{
-
-	t.t8[0]= RESP_NOK;
-	HAL_StatusTypeDef errorcode;
-
-	errorcode = HAL_SPI_Transmit_DMA(&hspi1, t.t8, 1);
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-	if (errorcode == HAL_OK)
-	{
-		return 1;
-	} else {
-		return 0;
-	}
-}
+//
+//uint8_t Send_OK(void)
+//{
+//
+//	t.t8[0] = RESP_OK;
+//	t.t8[1] = 0x00;
+//	HAL_StatusTypeDef errorcode;
+//
+//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+//
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//	if (errorcode == HAL_OK)
+//	{
+//		return 1;
+//	} else {
+//		return 0;
+//	}
+//}
+//uint8_t Send_NOK(void)
+//{
+//
+//	t.t8[0]= RESP_NOK;
+//	t.t8[1] = 0x00;
+//	HAL_StatusTypeDef errorcode;
+//
+//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//	if (errorcode == HAL_OK)
+//	{
+//		return 1;
+//	} else {
+//		return 0;
+//	}
+//}
 
 
 /* USER CODE END 4 */

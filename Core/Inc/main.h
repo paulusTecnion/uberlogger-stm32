@@ -43,13 +43,14 @@ enum  {
 	MAIN_ERROR
 };
 
-enum  {
+typedef enum  {
 	CMD_NOP = 0x00,
 	CMD_SETTINGS_MODE = 0x01,
 	CMD_MEASURE_MODE,
 	CMD_SET_RESOLUTION,
-	CMD_SET_SAMPLE_RATE
-};
+	CMD_SET_SAMPLE_RATE,
+	CMD_UNKNOWN
+} spi_cmd_esp_t;
 
 
 
@@ -57,6 +58,13 @@ enum   {
 	RESP_OK = 0x01,
 	RESP_NOK
 };
+
+typedef enum {
+	CMD_RESP_NOP = 0x00,
+	CMD_RESP_OK,
+	CMD_RESP_NOK
+} spi_cmd_resp_t;
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -75,7 +83,6 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 void Config_Handler();
 void Idle_Handler();
-
 
 
 uint8_t Send_OK(void);
