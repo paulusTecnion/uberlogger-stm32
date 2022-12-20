@@ -50,7 +50,7 @@ DMA_HandleTypeDef hdma_spi1_rx;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
-uint8_t MainState = MAIN_IDLE;
+uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
 uint8_t logging_en = 0;
 uint8_t msgRx = 0;
 uint8_t RxBuffer[1];
@@ -71,6 +71,7 @@ union _t{
 static union _adc_result adc_result;
 static union _t t;
 static int16_t counter = 0;
+static uint32_t currentTick, differenceTick;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -101,8 +102,8 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
 //	MainState = MAIN_ADC_START;
 //	spiDone = 1;
 //	HAL_SPI_DMAStop(&hspi1);
-	msgRx = 1;
-	HAL_SPI_DMAStop(&hspi1);
+//	msgRx = 1;
+//	HAL_SPI_DMAStop(&hspi1);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 }
 
@@ -159,8 +160,6 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
 			logging_en = 1;
-			HAL_TIM_Base_Start_IT(&htim3);
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, TESTBUFFERSIZE);
 	}
 }
 
@@ -168,9 +167,9 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
-		HAL_SPI_DMAStop(&hspi1);
-		HAL_TIM_Base_Stop_IT(&htim3);
-		HAL_ADC_Stop_DMA(&hadc1);
+		//HAL_SPI_DMAStop(&hspi1);
+
+		logging_en = 0;
 
 	}
 }
@@ -178,15 +177,18 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 
 uint8_t HAL_SPI_Send_cmd(spi_cmd_resp_t cmd, spi_cmd_esp_t cmd_esp)
 {
+
 	t.t8[0] = (uint8_t)cmd;
 	t.t8[1] = cmd_esp;
-	HAL_StatusTypeDef errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+	HAL_StatusTypeDef errorcode = HAL_SPI_TransmitReceive(&hspi1, t.t8, RxBuffer, 2, 2000);
+
 	if (errorcode == HAL_OK)
 	{
 		// Indicate to esp32 that data is ready
-		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 		// wait until transfer is done. Note that on a hardware level this may not have been sent yet!
-		while(hspi1.State == HAL_SPI_STATE_BUSY_TX_RX);
+//		while(hspi1.State == HAL_SPI_STATE_BUSY_TX_RX);
 	}
 	return errorcode;
 }
@@ -245,8 +247,12 @@ int main(void)
 	  switch(MainState)
 	  {
 		  case MAIN_IDLE:
-			  if (!logging_en)
+			  if (logging_en)
 			  {
+				  HAL_TIM_Base_Start_IT(&htim3);
+				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, TESTBUFFERSIZE);
+				  NextState = MAIN_LOGGING;
+			  } else {
 				  Idle_Handler();
 			  }
 			  break;
@@ -254,6 +260,37 @@ int main(void)
 		  case MAIN_CONFIG:
 			  Config_Handler();
 			  break;
+
+		  case MAIN_LOGGING:
+			  // Doing nothing
+			  if (!logging_en)
+			  {
+//				  currentTick = HAL_GetTick();
+//				  // Wait for SPI to finish any remaining transmissions.
+//				  while(hspi1.State == HAL_SPI_STATE_BUSY_TX)
+//				  {
+//					  differenceTick = currentTick - HAL_GetTick();
+//					  if (differenceTick> 750)
+//					  {
+//
+//						 HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//						 break;
+//					  }
+//
+//				  }
+//				  HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+				  HAL_TIM_Base_Stop_IT(&htim3);
+				  HAL_ADC_Stop_DMA(&hadc1);
+				  HAL_SPI_DMAStop(&hspi1);
+				  NextState = MAIN_IDLE;
+			  }
+			  break;
+
+	  }
+
+	  if (NextState != MainState)
+	  {
+		  MainState = NextState;
 	  }
 
   }
@@ -557,6 +594,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : SPI_NSS_Pin */
+  GPIO_InitStruct.Pin = SPI_NSS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(SPI_NSS_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -798,7 +841,7 @@ void Config_Handler()
 				  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_MEASURE_MODE) == HAL_OK)
 				  {
 					  ADC_Reinit();
-					  MainState = MAIN_IDLE;
+					  NextState = MAIN_IDLE;
 				  }
 				  break;
 
@@ -935,7 +978,7 @@ void Idle_Handler()
 		  case CMD_SETTINGS_MODE:
 			  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SETTINGS_MODE) == HAL_OK)
 			  {
-				MainState = MAIN_CONFIG;
+				NextState = MAIN_CONFIG;
 			  }
 
 		  break;
