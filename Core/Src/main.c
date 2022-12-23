@@ -56,22 +56,18 @@ uint8_t msgRx = 0;
 uint8_t RxBuffer[1];
 
 
-#define TESTBUFFERSIZE 8
+#define ADC_BUFFERSIZE 1024
 
 union _adc_result{
-	uint16_t  t16[TESTBUFFERSIZE];
-	uint8_t t8[TESTBUFFERSIZE*2];
+	uint16_t  t16[ADC_BUFFERSIZE];
+	uint8_t t8[ADC_BUFFERSIZE*2];
 };
 
-union _t{
-	uint16_t  t16[TESTBUFFERSIZE];
-	uint8_t t8[TESTBUFFERSIZE*2];
-};
+
 
 static union _adc_result adc_result;
-static union _t t;
-static int16_t counter = 0;
-static uint32_t currentTick, differenceTick;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -127,6 +123,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 }
 
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
+{
+	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   (ADC_BUFFERSIZE*2)/2);
+	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+
+}
+
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
     // Conversion Complete & DMA Transfer Complete As Well
@@ -149,7 +152,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 //	}
 
 //	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   TESTBUFFERSIZE*2);
+	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8+ADC_BUFFERSIZE,   ADC_BUFFERSIZE);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
@@ -178,10 +181,11 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 uint8_t HAL_SPI_Send_cmd(spi_cmd_resp_t cmd, spi_cmd_esp_t cmd_esp)
 {
 
-	t.t8[0] = (uint8_t)cmd;
-	t.t8[1] = cmd_esp;
+	uint8_t t8[2];
+	t8[0] = (uint8_t)cmd;
+	t8[1] = cmd_esp;
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-	HAL_StatusTypeDef errorcode = HAL_SPI_TransmitReceive(&hspi1, t.t8, RxBuffer, 2, 2000);
+	HAL_StatusTypeDef errorcode = HAL_SPI_TransmitReceive(&hspi1, t8, RxBuffer, 2, 2000);
 
 	if (errorcode == HAL_OK)
 	{
@@ -250,7 +254,7 @@ int main(void)
 			  if (logging_en)
 			  {
 				  HAL_TIM_Base_Start_IT(&htim3);
-				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, TESTBUFFERSIZE);
+				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, ADC_BUFFERSIZE);
 				  NextState = MAIN_LOGGING;
 			  } else {
 				  Idle_Handler();
