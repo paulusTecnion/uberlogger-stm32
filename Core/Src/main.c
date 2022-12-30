@@ -63,7 +63,7 @@ union _adc_result{
 	uint8_t t8[ADC_BUFFERSIZE*2];
 };
 
-
+uint16_t counter = 0;
 
 static union _adc_result adc_result;
 
@@ -85,10 +85,8 @@ static void MX_TIM3_Init(void);
 /* USER CODE BEGIN 0 */
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi)
 {
-	// Successfully transmitted values. Set data ready pin to low a
-//	MainState = MAIN_ADC_START;
-//	spiDone = 1;
-//	HAL_SPI_DMAStop(&hspi1);
+	// When a non-circular DMA transfer is finished, the DMA transfer has to be disabled
+	HAL_SPI_DMAStop(&hspi1);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 }
 
@@ -125,35 +123,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   (ADC_BUFFERSIZE*2)/2);
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+	HAL_StatusTypeDef ret;
+	adc_result.t8[0] = counter;
+	adc_result.t8[1] = 0;
+	counter++;
+	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8, ADC_BUFFERSIZE);
+	if (ret == HAL_OK)
+		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-    // Conversion Complete & DMA Transfer Complete As Well
-    // So The AD_RES Is Now Updated & Let's Move IT To The PWM CCR1
-    // Update The PWM Duty Cycle With Latest ADC Conversion Result
-//	if (MainState == MAIN_ADC_CONVERTING)
-//	{
-//		MainState = MAIN_SPI_START;
-//	}
-//
-//	for (int j = 0; j < 8; j++)
-//	{
-//		t.t16[j] = counter;
-//		counter++;
-//		if (counter > 4095)
-//		{
-//			counter = 0;
-//		}
-//
-//	}
+	HAL_StatusTypeDef ret;
+	adc_result.t8[ADC_BUFFERSIZE] = counter;
+	adc_result.t8[ADC_BUFFERSIZE+1] = 0;
+	counter++;
 
-//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8+ADC_BUFFERSIZE,   ADC_BUFFERSIZE);
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+	//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
+	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&adc_result.t8[ADC_BUFFERSIZE]),   ADC_BUFFERSIZE);
+	if (ret == HAL_OK)
+		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
 
@@ -255,6 +245,7 @@ int main(void)
 			  {
 				  HAL_TIM_Base_Start_IT(&htim3);
 				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, ADC_BUFFERSIZE);
+				  counter =0;
 				  NextState = MAIN_LOGGING;
 			  } else {
 				  Idle_Handler();
@@ -365,11 +356,11 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
@@ -378,7 +369,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -597,12 +588,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : SPI_NSS_Pin */
-  GPIO_InitStruct.Pin = SPI_NSS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(SPI_NSS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;
