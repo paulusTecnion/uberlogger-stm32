@@ -124,9 +124,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
-	adc_result.t8[0] = counter;
-	adc_result.t8[1] = 0;
-	counter++;
 	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8, ADC_BUFFERSIZE);
 	if (ret == HAL_OK)
 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
@@ -136,9 +133,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
-	adc_result.t8[ADC_BUFFERSIZE] = counter;
-	adc_result.t8[ADC_BUFFERSIZE+1] = 0;
-	counter++;
+
 
 	//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
 	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&adc_result.t8[ADC_BUFFERSIZE]),   ADC_BUFFERSIZE);
