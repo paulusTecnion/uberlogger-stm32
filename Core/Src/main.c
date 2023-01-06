@@ -59,11 +59,12 @@ uint8_t RxBuffer[1];
 #define ADC_BUFFERSIZE 1024
 
 union _adc_result{
-	uint16_t  t16[ADC_BUFFERSIZE];
+	uint16_t t16[ADC_BUFFERSIZE];
 	uint8_t t8[ADC_BUFFERSIZE*2];
 };
 
-uint16_t counter = 0;
+uint16_t  counter;
+
 
 static union _adc_result adc_result;
 
@@ -124,9 +125,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
-	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8, ADC_BUFFERSIZE);
-	if (ret == HAL_OK)
-		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+
+ 	ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)adc_result.t8,   ADC_BUFFERSIZE);
+ 	if (ret == HAL_OK)
+ 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
 
@@ -134,14 +136,17 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
 
-
-	//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
+//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
 	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&adc_result.t8[ADC_BUFFERSIZE]),   ADC_BUFFERSIZE);
 	if (ret == HAL_OK)
 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
 }
 
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
+{
+	adc_result.t8[0] = 255;
+}
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
@@ -217,7 +222,7 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -751,18 +756,157 @@ static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 break;
 		 // Unknown rate
 	 default:
-	 	return 0;
+	 	return 1;
 
 	 }
 
 	 // Reinit timer
 	 if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
 	  {
-	    return 0;
+	    return 1;
 	  }
 
 
-	 return 1;
+	 return 0;
+}
+
+
+static uint8_t Config_Enable_Adc_channel (uint8_t channel, uint8_t rank)
+{
+	ADC_ChannelConfTypeDef sConfig = {0};
+
+	switch (channel)
+	{
+
+		case 0:
+			sConfig.Channel = ADC_CHANNEL_0;
+			break;
+
+		case 1:
+			sConfig.Channel = ADC_CHANNEL_1;
+		break;
+
+		case 2:
+			sConfig.Channel = ADC_CHANNEL_2;
+				break;
+
+		case 3:
+			sConfig.Channel = ADC_CHANNEL_3;
+				break;
+
+		case 4:
+			sConfig.Channel = ADC_CHANNEL_4;
+				break;
+
+		case 5:
+			sConfig.Channel = ADC_CHANNEL_5;
+				break;
+
+		case 6:
+			sConfig.Channel = ADC_CHANNEL_6;
+				break;
+
+		case 7:
+			sConfig.Channel = ADC_CHANNEL_7;
+				break;
+
+		default:
+			return 1;
+	}
+
+
+	switch (rank)
+		{
+
+			case 1:
+				sConfig.Rank = ADC_REGULAR_RANK_1;
+			break;
+
+			case 2:
+				sConfig.Rank = ADC_REGULAR_RANK_2;
+					break;
+
+			case 3:
+				sConfig.Rank = ADC_REGULAR_RANK_3;
+					break;
+
+			case 4:
+				sConfig.Rank = ADC_REGULAR_RANK_4;
+					break;
+
+			case 5:
+				sConfig.Rank = ADC_REGULAR_RANK_5;
+					break;
+
+			case 6:
+				sConfig.Rank = ADC_REGULAR_RANK_6;
+					break;
+
+			case 7:
+				sConfig.Rank = ADC_REGULAR_RANK_7;
+					break;
+
+			case 8:
+				sConfig.Rank = ADC_REGULAR_RANK_8;
+				break;
+
+			default:
+				return 1;
+
+		}
+
+
+
+
+	sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	return 0;
+
+
+
+}
+
+static uint8_t Config_Set_Adc_channels(uint8_t channels)
+{
+
+	uint8_t channel_num=1,j, rank =1;
+
+	// first find number of channels
+	for (j=1; j<128; j = j << 1)
+	{
+		if (channels & j)
+			channel_num++;
+	}
+	// Initiate number of channels
+	 hadc1.Init.NbrOfConversion = channel_num;
+
+	 if (HAL_ADC_Init(&hadc1) != HAL_OK)
+	  {
+		Error_Handler();
+		return 1;
+	  }
+
+	 channel_num = 0;
+	// Mask channels data and see which ones are enabled (again)
+	for (j = 1; j<128; j = j << 1)
+	{
+		// If channel is enabled...
+		if (channels & j)
+		{
+			// Activate it in the first available rank. Return 1 on error.
+			if (Config_Enable_Adc_channel(channel_num, rank)) return 1;
+			rank++;
+
+		}
+		channel_num++; // Keep track of which channel number we are checking
+	}
+
+
+	return 0;
 }
 
 static uint8_t Config_Set_Resolution(uint8_t resolution)
@@ -788,7 +932,7 @@ static uint8_t Config_Set_Resolution(uint8_t resolution)
 
 	}
 
-	return 1;
+	return 0;
 
 }
 
@@ -830,7 +974,7 @@ void Config_Handler()
 				  break;
 
 			  case CMD_SET_RESOLUTION:
-				  if (Config_Set_Resolution(RxBuffer[1]))
+				  if (!Config_Set_Resolution(RxBuffer[1]))
 				  {
 					  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_RESOLUTION);
 				  } else {
@@ -842,13 +986,22 @@ void Config_Handler()
 
 			  case CMD_SET_SAMPLE_RATE:
 			 				// receive setting
-				if (Config_Set_Sample_freq(RxBuffer[1]))
+				if (!Config_Set_Sample_freq(RxBuffer[1]))
 				{
 					HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_SAMPLE_RATE);
 				} else {
 					HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_SAMPLE_RATE);
 				}
 			 	break;
+
+			  case CMD_SET_ADC_CHANNELS_ENABLED:
+				  if (!Config_Set_Adc_channels(RxBuffer[1]))
+				  {
+					  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_ADC_CHANNELS_ENABLED);
+				  } else {
+					  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_ADC_CHANNELS_ENABLED);
+				  }
+				  break;
 
 //			  case CMD_CONFIG_SET_DAC_PWM:
 //

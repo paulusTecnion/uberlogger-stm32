@@ -9,12 +9,12 @@
 #define INC_ESP32_INTERFACE_H_
 
 enum adc_resolution_e {
-    ADC_12_BITS = 1,
-    ADC_16_BITS = 2
+    ADC_12_BITS = 12U,
+    ADC_16_BITS = 16U
 };
 
 enum adc_sample_rate {
-    ADC_SAMPLE_RATE_1Hz = 1,
+    ADC_SAMPLE_RATE_1Hz = 1U,
 	ADC_SAMPLE_RATE_10Hz,
 	ADC_SAMPLE_RATE_25Hz,
 	ADC_SAMPLE_RATE_50Hz,
