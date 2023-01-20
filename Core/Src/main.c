@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "esp32_interface.h"
 #include "stdint.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,11 +33,16 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define SPI_BUFFERSIZE_BYTES 1020
+#define ADC_BUFFERSIZE_SAMPLES 960
+#define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
+#define GPIO_IO_BUFFERSIZE 120
+#define GPIO_IO_BUFFERIZE_BYTES GPIO_IO_BUFFERSIZE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define BUFFERSIZE 3*sizeof(uint16_t) // 3 channels * uint16
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -56,17 +62,40 @@ uint8_t msgRx = 0;
 uint8_t RxBuffer[1];
 
 
-#define ADC_BUFFERSIZE 1024
+// SPI buffer size is 1024 bytes
+// 8 ADC channels + 1 byte for all IO/s = 2*8+1 = 17 bytes per sample row
+// This will fit floor(1024/17) = 60 samples of data.
+// That means 1020 / 17 = 60 samples of ADC data and IO data
+// Which equals 8*60 = 480 ADC samples (960 bytes) and 1*60 = 60 IO samples (60 bytes)
+// So in order to have a circular buffer we will need:
+// 960 = 960 samples (=1920*2 bytes) for the ADC
+// 60*2 = 120 samples (=120 bytes) for the IO
+
+// To conclude: per SPI transaction a total of 60*17 = 1020 bytes will be sent.
+// The SD card, however, prefers block of power of 2, which means 1024 is closest.
+// The remaining 4 bytes will be stuffed with 0's on the ESP side.
+// In the future we could use the last 4 bytes for CRC
+
+
 
 union _adc_result{
-	uint16_t t16[ADC_BUFFERSIZE];
-	uint8_t t8[ADC_BUFFERSIZE*2];
+	uint16_t t16[ADC_BUFFERSIZE_SAMPLES];
+	uint8_t t8[ADC_BUFFERSIZE_BYTES];
 };
 
 uint16_t  counter;
 
+union _adc_result adc_result;
+uint8_t gpio_result[GPIO_IO_BUFFERSIZE];
 
-static union _adc_result adc_result;
+// Don't touch order of struct!
+struct {
+	uint8_t adc[ADC_BUFFERSIZE_BYTES/2];
+	uint8_t gpio[GPIO_IO_BUFFERSIZE/2];
+} spi_buffer;
+
+volatile uint16_t gpio_result_write_ptr;
+
 
 
 /* USER CODE END PV */
@@ -118,15 +147,27 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
  /* Prevent unused argument(s) compilation warning */
- UNUSED(htim);
+	 // Check which version of the timer triggered this callback and toggle LED
+	if (htim == &htim3 )
+	  {
+		  // 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
+	    memcpy((void*) (gpio_result + gpio_result_write_ptr), (void*) 0x50000411, 1);
+//		gpio_result = gpio_result_write_ptr;
+	    gpio_result_write_ptr++;
+	  }
+	  if (gpio_result_write_ptr > GPIO_IO_BUFFERIZE_BYTES-8)
+		  gpio_result_write_ptr =0;
 
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
+	// Half way we have the pointers start at the beginning
+	memcpy(spi_buffer.gpio, gpio_result, GPIO_IO_BUFFERSIZE/2);
+	memcpy(spi_buffer.adc, adc_result.t8, ADC_BUFFERSIZE_BYTES/2);
 
- 	ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)adc_result.t8,   ADC_BUFFERSIZE);
+ 	ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)&spi_buffer,   SPI_BUFFERSIZE_BYTES);
  	if (ret == HAL_OK)
  		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
@@ -136,8 +177,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
 
-//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
-	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&adc_result.t8[ADC_BUFFERSIZE]),   ADC_BUFFERSIZE);
+	// At the last ADC sample, way we have the pointers start halfway
+
+	memcpy(spi_buffer.gpio, gpio_result+GPIO_IO_BUFFERSIZE/2, GPIO_IO_BUFFERSIZE/2);
+	memcpy(spi_buffer.adc, adc_result.t8+ADC_BUFFERSIZE_BYTES/2, ADC_BUFFERSIZE_BYTES/2);
+
+	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&spi_buffer),   SPI_BUFFERSIZE_BYTES);
 	if (ret == HAL_OK)
 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
@@ -187,6 +232,9 @@ uint8_t HAL_SPI_Send_cmd(spi_cmd_resp_t cmd, spi_cmd_esp_t cmd_esp)
 	return errorcode;
 }
 
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -222,7 +270,7 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -244,7 +292,7 @@ int main(void)
 			  if (logging_en)
 			  {
 				  HAL_TIM_Base_Start_IT(&htim3);
-				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, ADC_BUFFERSIZE);
+				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, ADC_BUFFERSIZE_SAMPLES);
 				  counter =0;
 				  NextState = MAIN_LOGGING;
 			  } else {
