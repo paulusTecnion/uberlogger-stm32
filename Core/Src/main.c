@@ -24,6 +24,7 @@
 #include "esp32_interface.h"
 #include "stdint.h"
 #include "string.h"
+#include <time.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +49,8 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
+
+RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi1;
 DMA_HandleTypeDef hdma_spi1_tx;
@@ -96,7 +99,8 @@ struct {
 
 volatile uint16_t gpio_result_write_ptr;
 
-
+static RTC_TimeTypeDef sTimestamp;
+static RTC_DateTypeDef sTimeStampDate;
 
 /* USER CODE END PV */
 
@@ -107,6 +111,7 @@ static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -150,6 +155,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	 // Check which version of the timer triggered this callback and toggle LED
 	if (htim == &htim3 )
 	  {
+
 		  // 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 	    memcpy((void*) (gpio_result + gpio_result_write_ptr), (void*) 0x50000411, 1);
 //		gpio_result = gpio_result_write_ptr;
@@ -269,6 +275,7 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -286,6 +293,35 @@ int main(void)
 //	  {
 //		  HAL_SPI_Receive_DMA(&hspi1, RxBuffer, 2);
 //	  }
+//	  HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN
+
+	  // Get the current time from the RTC
+	     RTC_TimeTypeDef current_time;
+
+	     memset(&sTimestamp, 0, sizeof(sTimestamp));
+	     memset(&sTimeStampDate, 0, sizeof(sTimeStampDate));
+
+	     sTimestamp.Hours = 14;
+	     sTimestamp.Minutes = 58;
+	     sTimeStampDate.WeekDay = 0;
+	     sTimeStampDate.Year = 23;
+	     sTimeStampDate.Month = 1;
+	     sTimeStampDate.Date = 25;
+
+
+	     HAL_RTC_SetTime(&hrtc, &sTimestamp, RTC_FORMAT_BCD);
+	     HAL_RTC_SetDate(&hrtc, &sTimeStampDate, RTC_FORMAT_BCD);
+
+	     HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BCD);
+
+	     RTC_DateTypeDef current_date;
+	     HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BCD);
+
+
+
+
+
+
 	  switch(MainState)
 	  {
 		  case MAIN_IDLE:
@@ -356,8 +392,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -506,6 +543,79 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.SubSeconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x23;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Enable Calibration
+  */
+  if (HAL_RTCEx_SetCalibrationOutPut(&hrtc, RTC_CALIBOUTPUT_1HZ) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
@@ -618,6 +728,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
