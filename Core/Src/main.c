@@ -34,11 +34,37 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SPI_BUFFERSIZE_BYTES 1020
-#define ADC_BUFFERSIZE_SAMPLES 960
+
+
+// One line of the spi buffer depends on at what stage of sending it is. For the first half of the ADC conversion we have:
+// [start bytes][39*(1 year byte, 1 month byte, 1 date byte, 1 hour, 1 second byte, 4 subsecondsTime bytes) Time bytes][39*GPIO bytes][60*8channels*2 ADC bytes]
+// For the second half we have :
+// [39*8channels*2 ADC bytes][39*GPIO bytes][39*(1 year byte, 1 month byte, 1 date byte, 1 hour, 1 second byte, 4 subsecondsTime bytes) Time bytes][Stop bytes]
+// So the SPI TX length is:
+// 2 start/stop bytes   = 2
+// 39*8*2 ADC           = 624
+// 39 * 1 GPIO          = 39
+// 39*(1+1+1+1+1+4) Time= 351
+//  Total               = 1016 bytes
+
+#define DATA_LINES_PER_SPI_TRANSACTION  70
+#define ADC_VALUES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*8 // Number of ADC uint16_t per transaction. This is 5 times 480 ADC values
+#define ADC_BYTES_PER_SPI_TRANSACTION ADC_VALUES_PER_SPI_TRANSACTION*2
+#define GPIO_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*1
+#define TIME_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*12
+#define START_STOP_NUM_BYTES            2
+
+// Number of bytes when receiving data from the STM
+#define STM_SPI_BUFFERSIZE_DATA_TX      (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION + START_STOP_NUM_BYTES)
+#define STM_DATA_BUFFER_SIZE_PER_TRANSACTION (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION)
+
+//#define STM_SPI_BUFFERSIZE_DATA_TX 1020
+#define ADC_BUFFERSIZE_SAMPLES ADC_VALUES_PER_SPI_TRANSACTION*2
 #define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
-#define GPIO_IO_BUFFERSIZE 120
-#define GPIO_IO_BUFFERIZE_BYTES GPIO_IO_BUFFERSIZE
+#define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
+#define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,42 +91,80 @@ uint8_t msgRx = 0;
 uint8_t RxBuffer[1];
 
 
-// SPI buffer size is 1024 bytes
-// 8 ADC channels + 1 byte for all IO/s = 2*8+1 = 17 bytes per sample row
-// This will fit floor(1024/17) = 60 samples of data.
-// That means 1020 / 17 = 60 samples of ADC data and IO data
-// Which equals 8*60 = 480 ADC samples (960 bytes) and 1*60 = 60 IO samples (60 bytes)
-// So in order to have a circular buffer we will need:
-// 960 = 960 samples (=1920*2 bytes) for the ADC
-// 60*2 = 120 samples (=120 bytes) for the IO
-
-// To conclude: per SPI transaction a total of 60*17 = 1020 bytes will be sent.
-// The SD card, however, prefers block of power of 2, which means 1024 is closest.
-// The remaining 4 bytes will be stuffed with 0's on the ESP side.
-// In the future we could use the last 4 bytes for CRC
 
 
 
-union _adc_result{
-	uint16_t t16[ADC_BUFFERSIZE_SAMPLES];
-	uint8_t t8[ADC_BUFFERSIZE_BYTES];
-};
+//union _adc_result{
+//	uint16_t t16[ADC_BUFFERSIZE_SAMPLES];
+//	uint8_t t8[ADC_BUFFERSIZE_BYTES];
+//};
+//
+//uint16_t  counter;
+//
+//union _adc_result adc_result;
+//uint8_t gpio_result[GPIO_IO_BUFFERIZE_BYTES];
+//
+//// Don't touch order of struct!
+//struct {
+//	uint8_t adc[ADC_BUFFERSIZE_BYTES/2];
+//	uint8_t gpio[GPIO_IO_BUFFERIZE_BYTES/2];
+//} spi_buffer;
 
-uint16_t  counter;
 
-union _adc_result adc_result;
-uint8_t gpio_result[GPIO_IO_BUFFERSIZE];
 
-// Don't touch order of struct!
-struct {
-	uint8_t adc[ADC_BUFFERSIZE_BYTES/2];
-	uint8_t gpio[GPIO_IO_BUFFERSIZE/2];
-} spi_buffer;
+volatile uint16_t data_buffer_write_ptr = 0;
+volatile uint32_t gpio_result_write_ptr = 0;
+volatile uint32_t time_result_write_ptr = 0;
 
-volatile uint16_t gpio_result_write_ptr;
+static uint8_t adc_is_half = 0;
 
-static RTC_TimeTypeDef sTimestamp;
-static RTC_DateTypeDef sTimeStampDate;
+static RTC_TimeTypeDef current_time;
+static RTC_DateTypeDef current_date;
+
+// Variable for retrieving the
+s_date_time_t current_date_time;
+
+uint16_t tim3_counter = 0;
+
+typedef struct {
+    uint8_t startByte[START_STOP_NUM_BYTES];
+    uint16_t dataLen;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint8_t padding3;
+    uint8_t padding4;
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+} spi_msg_1_t;
+
+typedef struct {
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t padding1;
+    uint8_t padding2;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint16_t dataLen;
+    uint8_t stopByte[START_STOP_NUM_BYTES];
+} spi_msg_2_t;
+
+uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
+
+
+
+// uint8_t *start_stop_bytes_start_pointer_1 = data_buffer;
+// uint8_t *time_start_pointer_1;
+// uint8_t *gpio_start_pointer_1;
+// uint8_t *adc_start_pointer_1;
+//
+// uint8_t *adc_start_pointer_2;
+//
+// uint8_t *gpio_start_pointer_2;
+// uint8_t *time_start_pointer_2;
+// uint8_t *start_stop_bytes_start_pointer_2;
+
+spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(data_buffer)/2) ;
+
+
 
 /* USER CODE END PV */
 
@@ -151,29 +215,72 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
- /* Prevent unused argument(s) compilation warning */
+
 	 // Check which version of the timer triggered this callback and toggle LED
+	HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BCD);
+	HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BCD);
+
+	current_date_time.year = current_date.Year;
+	current_date_time.month = current_date.Month;
+	current_date_time.date = current_date.Date;
+	current_date_time.hours = current_time.Hours;
+	current_date_time.minutes = current_time.Minutes;
+	current_date_time.seconds = current_time.Seconds;
+	// Next line not 100% correct!
+	current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
+
+	tim3_counter++;
+
 	if (htim == &htim3 )
 	  {
+		// Are still in the first ADC half?
+		if (!adc_is_half)
+		{
+//			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 
-		  // 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-	    memcpy((void*) (gpio_result + gpio_result_write_ptr), (void*) 0x50000411, 1);
-//		gpio_result = gpio_result_write_ptr;
-	    gpio_result_write_ptr++;
+//			memcpy((void*) (gpio_start_pointer_1 + gpio_result_write_ptr), (void*) 0x50000411, 1);
+////			// Store time
+//			memcpy((void*) (time_start_pointer_1 + time_result_write_ptr), &current_date_time, sizeof(current_date_time));
+			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			spi_msg_1_ptr->dataLen = tim3_counter;
+		} else { // If not, we fill the second part
+//			memcpy((void*) (gpio_start_pointer_2 + gpio_result_write_ptr), (void*) 0x50000411, 1);
+////
+//			memcpy((void*) (time_start_pointer_2 + time_result_write_ptr), &current_date_time, sizeof(current_date_time));
+			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			spi_msg_2_ptr->dataLen = tim3_counter;
+		}
+//
+		gpio_result_write_ptr++;
+//		time_result_write_ptr = time_result_write_ptr + sizeof(current_date_time);
+//e
+//		// to add: check for overrun
+		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
+		{
+			gpio_result_write_ptr = GPIO_BYTES_PER_SPI_TRANSACTION-1;
+		}
+//
+//		if (time_result_write_ptr <= TIME_BYTES_PER_SPI_TRANSACTION)
+//		{
+//			time_result_write_ptr = TIME_BYTES_PER_SPI_TRANSACTION-1;
+//		}
+
 	  }
-	  if (gpio_result_write_ptr > GPIO_IO_BUFFERIZE_BYTES-8)
-		  gpio_result_write_ptr =0;
-
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
+	adc_is_half = 1;
+	gpio_result_write_ptr = 0;
+	time_result_write_ptr = 0;
+	tim3_counter=0;
 	// Half way we have the pointers start at the beginning
-	memcpy(spi_buffer.gpio, gpio_result, GPIO_IO_BUFFERSIZE/2);
-	memcpy(spi_buffer.adc, adc_result.t8, ADC_BUFFERSIZE_BYTES/2);
 
- 	ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)&spi_buffer,   SPI_BUFFERSIZE_BYTES);
+
+ 	ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)spi_msg_1_ptr,   sizeof(spi_msg_1_t));
  	if (ret == HAL_OK)
  		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
@@ -182,13 +289,15 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	HAL_StatusTypeDef ret;
+	adc_is_half = 0;
+	gpio_result_write_ptr = 0;
+	time_result_write_ptr = 0;
+	tim3_counter=0;
 
-	// At the last ADC sample, way we have the pointers start halfway
 
-	memcpy(spi_buffer.gpio, gpio_result+GPIO_IO_BUFFERSIZE/2, GPIO_IO_BUFFERSIZE/2);
-	memcpy(spi_buffer.adc, adc_result.t8+ADC_BUFFERSIZE_BYTES/2, ADC_BUFFERSIZE_BYTES/2);
-
-	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) (&spi_buffer),   SPI_BUFFERSIZE_BYTES);
+//	uint8_t * ptr = data_buffer+(sizeof(data_buffer)/2);
+	// At the last ADC sample, we have to send data from half-way the data_buffer size.
+	ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*)spi_msg_2_ptr,   sizeof(spi_msg_2_t));
 	if (ret == HAL_OK)
 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
 
@@ -196,7 +305,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
 {
-	adc_result.t8[0] = 255;
+
 }
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
@@ -278,6 +387,13 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
+
+
+ 	  spi_msg_1_ptr->startByte[0] = 0xFF;
+ 	  spi_msg_1_ptr->startByte[1] = 0xFF;
+ 	  spi_msg_2_ptr->stopByte[0]= 0xFF;
+ 	  spi_msg_2_ptr->stopByte[1]= 0xFF;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -288,38 +404,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  // Always receive
-//	  if (!logging_en && hspi1.State == HAL_SPI_STATE_READY && msgRx == 0)
-//	  {
-//		  HAL_SPI_Receive_DMA(&hspi1, RxBuffer, 2);
-//	  }
-//	  HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN
-
-	  // Get the current time from the RTC
-	     RTC_TimeTypeDef current_time;
-
-	     memset(&sTimestamp, 0, sizeof(sTimestamp));
-	     memset(&sTimeStampDate, 0, sizeof(sTimeStampDate));
-
-	     sTimestamp.Hours = 14;
-	     sTimestamp.Minutes = 58;
-	     sTimeStampDate.WeekDay = 0;
-	     sTimeStampDate.Year = 23;
-	     sTimeStampDate.Month = 1;
-	     sTimeStampDate.Date = 25;
-
-
-	     HAL_RTC_SetTime(&hrtc, &sTimestamp, RTC_FORMAT_BCD);
-	     HAL_RTC_SetDate(&hrtc, &sTimeStampDate, RTC_FORMAT_BCD);
-
-	     HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BCD);
-
-	     RTC_DateTypeDef current_date;
-	     HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BCD);
-
-
-
-
 
 
 	  switch(MainState)
@@ -328,8 +412,14 @@ int main(void)
 			  if (logging_en)
 			  {
 				  HAL_TIM_Base_Start_IT(&htim3);
-				  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, ADC_BUFFERSIZE_SAMPLES);
-				  counter =0;
+				  HAL_ADC_Start_DMA(
+						  &hadc1,
+						  // data_buffer + offset
+						  (uint32_t*)(spi_msg_1_ptr->adcData),
+						  ADC_BUFFERSIZE_SAMPLES);
+
+
+
 				  NextState = MAIN_LOGGING;
 			  } else {
 				  Idle_Handler();
@@ -360,7 +450,18 @@ int main(void)
 //				  HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 				  HAL_TIM_Base_Stop_IT(&htim3);
 				  HAL_ADC_Stop_DMA(&hadc1);
-				  HAL_SPI_DMAStop(&hspi1);
+				  // Send final bytes
+				  if (!adc_is_half)
+				  {
+					  	  HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*)spi_msg_1_ptr,   sizeof(spi_msg_1_t));
+						if (ret == HAL_OK)
+							HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+				  } else {
+					  	  HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*)spi_msg_2_ptr,   sizeof(spi_msg_2_t));
+							if (ret == HAL_OK)
+								HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+				  }
+
 				  NextState = MAIN_IDLE;
 			  }
 			  break;
@@ -583,7 +684,7 @@ static void MX_RTC_Init(void)
 
   /** Initialize RTC and set the Time and Date
   */
-  sTime.Hours = 0x0;
+  sTime.Hours = 0x12;
   sTime.Minutes = 0x0;
   sTime.Seconds = 0x0;
   sTime.SubSeconds = 0x0;
@@ -596,16 +697,9 @@ static void MX_RTC_Init(void)
   sDate.WeekDay = RTC_WEEKDAY_MONDAY;
   sDate.Month = RTC_MONTH_JANUARY;
   sDate.Date = 0x1;
-  sDate.Year = 0x23;
+  sDate.Year = 0x17;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Enable Calibration
-  */
-  if (HAL_RTCEx_SetCalibrationOutPut(&hrtc, RTC_CALIBOUTPUT_1HZ) != HAL_OK)
   {
     Error_Handler();
   }
