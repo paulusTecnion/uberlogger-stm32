@@ -380,7 +380,7 @@ int main(void)
   MX_TIM3_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_ADCEx_Calibration_Start(&hadc1);
   // Backup current adc settings
   hadc1_bak = hadc1;
 
