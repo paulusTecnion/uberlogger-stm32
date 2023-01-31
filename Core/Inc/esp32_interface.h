@@ -15,6 +15,7 @@ enum adc_resolution_e {
 
 enum adc_sample_rate {
     ADC_SAMPLE_RATE_1Hz = 1U,
+	ADC_SAMPLE_RATE_2Hz,
 	ADC_SAMPLE_RATE_10Hz,
 	ADC_SAMPLE_RATE_25Hz,
 	ADC_SAMPLE_RATE_50Hz,

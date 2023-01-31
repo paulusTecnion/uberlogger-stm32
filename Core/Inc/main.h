@@ -46,7 +46,7 @@ enum  {
 
 typedef enum  {
 	CMD_NOP = 0x00,
-	CMD_SETTINGS_MODE = 0x01,
+	CMD_SETTINGS_MODE,
 	CMD_MEASURE_MODE,
 	CMD_SET_RESOLUTION,
 	CMD_SET_SAMPLE_RATE,
@@ -97,6 +97,8 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 void Config_Handler();
 void Idle_Handler();
+static void ADC_Reinit();
+static void ADC_Set_Single_Acq();
 
 
 uint8_t Send_OK(void);
