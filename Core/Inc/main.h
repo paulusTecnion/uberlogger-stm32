@@ -37,6 +37,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+
 enum  {
 	MAIN_IDLE = 0x01,
 	MAIN_CONFIG,
@@ -46,11 +47,12 @@ enum  {
 
 typedef enum  {
 	CMD_NOP = 0x00,
-	CMD_SETTINGS_MODE,
-	CMD_MEASURE_MODE,
-	CMD_SET_RESOLUTION,
-	CMD_SET_SAMPLE_RATE,
-	CMD_SET_ADC_CHANNELS_ENABLED,
+	STM32_CMD_SETTINGS_MODE,
+	STM32_CMD_SETTINGS_SYNC,
+	STM32_CMD_MEASURE_MODE,
+	STM32_CMD_SET_RESOLUTION,
+	STM32_CMD_SET_SAMPLE_RATE,
+	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
 	CMD_UNKNOWN
 } spi_cmd_esp_t;
 
@@ -78,6 +80,13 @@ typedef struct {
 	uint8_t padding2;
 	uint32_t subseconds;
 } s_date_time_t;
+
+typedef struct {
+    uint8_t command;
+    uint8_t data;
+} spi_cmd_t;
+
+
 
 /* USER CODE END ET */
 

@@ -88,7 +88,7 @@ TIM_HandleTypeDef htim3;
 uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
 uint8_t logging_en = 0;
 uint8_t msgRx = 0;
-uint8_t RxBuffer[1];
+uint8_t RxBuffer[sizeof(Settings_t) + 20];
 
 ADC_HandleTypeDef hadc1_bak;
 
@@ -320,12 +320,12 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 }
 
 
-uint8_t HAL_SPI_Send_cmd(spi_cmd_resp_t cmd, spi_cmd_esp_t cmd_esp)
+uint8_t HAL_SPI_Send_cmd(spi_cmd_esp_t cmd_esp, spi_cmd_resp_t cmd)
 {
 
 	uint8_t t8[2];
-	t8[0] = (uint8_t)cmd;
-	t8[1] = cmd_esp;
+	t8[0] = (uint8_t)cmd_esp;
+	t8[1] = cmd;
 	HAL_StatusTypeDef errorcode;
 
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
@@ -436,24 +436,8 @@ int main(void)
 			  // Doing nothing
 			  if (!logging_en)
 			  {
-//
 				  HAL_TIM_Base_Stop_IT(&htim3);
 				  HAL_ADC_Stop_DMA(&hadc1);
-				  // Send final bytes
-
-				  /* Part below does not work well yet */
-//				  if (!adc_is_half)
-//				  {
-//					  	  HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*)spi_msg_1_ptr,   sizeof(spi_msg_1_t));
-//						if (ret == HAL_OK)
-//							HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-//				  } else {
-//					  	  HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*)spi_msg_2_ptr,   sizeof(spi_msg_2_t));
-//							if (ret == HAL_OK)
-//								HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-//				  }
-
-
 				  // Set ADC to single conversion measure mode
 				  NextState = MAIN_IDLE;
 			  }
@@ -1242,46 +1226,46 @@ void Config_Handler()
 				  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 				  break;
 
-			  case CMD_MEASURE_MODE:
+			  case STM32_CMD_MEASURE_MODE:
 				  // Re-init ADC
-				  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_MEASURE_MODE) == HAL_OK)
+				  if (HAL_SPI_Send_cmd(STM32_CMD_MEASURE_MODE, CMD_RESP_OK) == HAL_OK)
 				  {
 					  ADC_Reinit();
 					  NextState = MAIN_IDLE;
 				  }
 				  break;
 
-			  case CMD_SET_RESOLUTION:
+			  case STM32_CMD_SET_RESOLUTION:
 				  if (!Config_Set_Resolution(RxBuffer[1]))
 				  {
-					  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_RESOLUTION);
+					  HAL_SPI_Send_cmd(STM32_CMD_SET_RESOLUTION, CMD_RESP_OK);
 				  } else {
-					  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_RESOLUTION);
+					  HAL_SPI_Send_cmd(STM32_CMD_SET_RESOLUTION, CMD_RESP_NOK);
 				  }
 
 				  break;
 
 
-			  case CMD_SET_SAMPLE_RATE:
+			  case STM32_CMD_SET_SAMPLE_RATE:
 			 				// receive setting
 				if (!Config_Set_Sample_freq(RxBuffer[1]))
 				{
-					HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_SAMPLE_RATE);
+					HAL_SPI_Send_cmd(STM32_CMD_SET_SAMPLE_RATE, CMD_RESP_OK);
 				} else {
-					HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_SAMPLE_RATE);
+					HAL_SPI_Send_cmd(STM32_CMD_SET_SAMPLE_RATE, CMD_RESP_NOK);
 				}
 			 	break;
 
-			  case CMD_SET_ADC_CHANNELS_ENABLED:
+			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
 				  if (!Config_Set_Adc_channels(RxBuffer[1]))
 				  {
-					  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SET_ADC_CHANNELS_ENABLED);
+					  HAL_SPI_Send_cmd(STM32_CMD_SET_ADC_CHANNELS_ENABLED, CMD_RESP_OK);
 				  } else {
-					  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_SET_ADC_CHANNELS_ENABLED);
+					  HAL_SPI_Send_cmd(STM32_CMD_SET_ADC_CHANNELS_ENABLED, CMD_RESP_NOK);
 				  }
 				  break;
 
-//			  case CMD_CONFIG_SET_DAC_PWM:
+//			  case STM32_CMD_CONFIG_SET_DAC_PWM:
 //
 //				  break;
 
@@ -1347,7 +1331,10 @@ void Idle_Handler()
 	uint8_t retVal;
 
 //	 Blocking SPI read with 1000 clock cycles timeout.
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 2, 250);
+	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, sizeof(spi_cmd_t), 100);
+
+	spi_cmd_t * cmd = (spi_cmd_t*)RxBuffer;
+
 	if( retVal == HAL_ERROR)
 	{
 	  /* Transfer error in transmission process */
@@ -1355,13 +1342,13 @@ void Idle_Handler()
 	}
 	else if (retVal == HAL_OK)
 	{
-	  switch(RxBuffer[0])
+	  switch(cmd->command)
 	  {
 
-		  case CMD_SETTINGS_MODE:
-			  if (HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_SETTINGS_MODE) == HAL_OK)
+		  case STM32_CMD_SETTINGS_MODE:
+			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
 			  {
-				NextState = MAIN_CONFIG;
+				  NextState = MAIN_CONFIG;
 			  }
 
 		  break;
