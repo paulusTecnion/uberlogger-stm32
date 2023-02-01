@@ -146,6 +146,7 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
+uint8_t firstSent = 0;
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
@@ -174,6 +175,7 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi)
 	// When a non-circular DMA transfer is finished, the DMA transfer has to be disabled
 	HAL_SPI_DMAStop(&hspi1);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+	firstSent = 1;
 }
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef * hspi)
@@ -329,15 +331,15 @@ uint8_t HAL_SPI_Send_cmd(spi_cmd_esp_t cmd_esp, spi_cmd_resp_t cmd)
 	HAL_StatusTypeDef errorcode;
 
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-	errorcode = HAL_SPI_TransmitReceive(&hspi1, t8, RxBuffer, 2, 2000);
+	errorcode = HAL_SPI_TransmitReceive(&hspi1, t8, RxBuffer, 2, 1500);
 
-	if (errorcode == HAL_OK)
-	{
+//	if (errorcode == HAL_OK)
+//	{
 		// Indicate to esp32 that data is ready
 		HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 		// wait until transfer is done. Note that on a hardware level this may not have been sent yet!
 //		while(hspi1.State == HAL_SPI_STATE_BUSY_TX_RX);
-	}
+//	}
 	return errorcode;
 }
 
@@ -380,6 +382,10 @@ int main(void)
   MX_TIM3_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
+
+  // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (9 = MSB))
+  GPIOB->OSPEEDR |= (0x0200);
+
   HAL_ADCEx_Calibration_Start(&hadc1);
   // Backup current adc settings
   hadc1_bak = hadc1;
@@ -416,7 +422,6 @@ int main(void)
 				  HAL_TIM_Base_Start_IT(&htim3);
 				  HAL_ADC_Start_DMA(
 						  &hadc1,
-						  // data_buffer + offset
 						  (uint32_t*)(spi_msg_1_ptr->adcData),
 						  ADC_BUFFERSIZE_SAMPLES);
 
@@ -432,6 +437,30 @@ int main(void)
 			  Config_Handler();
 			  break;
 
+		  case MAIN_SINGLE_SHOT:
+			  firstSent = 0;
+			  TIM_HandleTypeDef htim3_bak = htim3;
+			  // Set timer to 100Hz
+			  Config_Set_Sample_freq(7);
+
+			  HAL_TIM_Base_Start_IT(&htim3);
+			  HAL_ADC_Start_DMA(
+					  &hadc1,
+					  (uint32_t*)(spi_msg_1_ptr->adcData),
+					  ADC_BUFFERSIZE_SAMPLES);
+
+			  // Wait until first message is sent
+			  while(!firstSent){};
+			  HAL_TIM_Base_Stop_IT(&htim3);
+			  HAL_ADC_Stop_DMA(&hadc1);
+
+			  htim3 = htim3_bak;
+			  HAL_TIM_Base_Init(&htim3);
+			  // Set ADC to single conversion measure mode
+			  NextState = MAIN_IDLE;
+
+
+			  break;
 		  case MAIN_LOGGING:
 			  // Doing nothing
 			  if (!logging_en)
@@ -1352,6 +1381,13 @@ void Idle_Handler()
 			  }
 
 		  break;
+
+		  case STM32_CMD_SINGLE_SHOT_MEASUREMENT:
+			  if (HAL_SPI_Send_cmd(STM32_CMD_SINGLE_SHOT_MEASUREMENT, CMD_RESP_OK) == HAL_OK)
+			  {
+				  NextState = MAIN_SINGLE_SHOT;
+			  }
+			  break;
 
 		  case CMD_NOP:
 			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);

@@ -42,6 +42,7 @@ enum  {
 	MAIN_IDLE = 0x01,
 	MAIN_CONFIG,
 	MAIN_LOGGING,
+	MAIN_SINGLE_SHOT,
 	MAIN_ERROR
 };
 
@@ -53,6 +54,7 @@ typedef enum  {
 	STM32_CMD_SET_RESOLUTION,
 	STM32_CMD_SET_SAMPLE_RATE,
 	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
+	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
 	CMD_UNKNOWN
 } spi_cmd_esp_t;
 
@@ -86,7 +88,7 @@ typedef struct {
     uint8_t data;
 } spi_cmd_t;
 
-
+static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
 
 /* USER CODE END ET */
 
