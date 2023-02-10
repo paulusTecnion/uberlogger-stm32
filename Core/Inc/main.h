@@ -31,7 +31,11 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "esp32_interface.h"
+#include "events.h"
+#include "msg.h"
+#include "spi_ctrl.h"
+#include "config.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -43,33 +47,11 @@ enum  {
 	MAIN_CONFIG,
 	MAIN_LOGGING,
 	MAIN_SINGLE_SHOT,
+	MAIN_SINGLE_SHOT_AWAIT_RESULT,
 	MAIN_ERROR
 };
 
-typedef enum  {
-	CMD_NOP = 0x00,
-	STM32_CMD_SETTINGS_MODE,
-	STM32_CMD_SETTINGS_SYNC,
-	STM32_CMD_MEASURE_MODE,
-	STM32_CMD_SET_RESOLUTION,
-	STM32_CMD_SET_SAMPLE_RATE,
-	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
-	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
-	CMD_UNKNOWN
-} spi_cmd_esp_t;
 
-
-
-enum   {
-	RESP_OK = 0x01,
-	RESP_NOK
-};
-
-typedef enum {
-	CMD_RESP_NOP = 0x00,
-	CMD_RESP_OK,
-	CMD_RESP_NOK
-} spi_cmd_resp_t;
 
 typedef struct {
 	uint8_t year;
@@ -83,12 +65,8 @@ typedef struct {
 	uint32_t subseconds;
 } s_date_time_t;
 
-typedef struct {
-    uint8_t command;
-    uint8_t data;
-} spi_cmd_t;
 
-static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
+
 
 /* USER CODE END ET */
 
@@ -106,14 +84,10 @@ static uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void Config_Handler();
-void Idle_Handler();
-static void ADC_Reinit();
-static void ADC_Set_Single_Acq();
 
 
-uint8_t Send_OK(void);
-uint8_t Send_NOK(void);
+void Idle_Handler(Message_t * msg);
+void ADC_Reinit();
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -129,6 +103,8 @@ uint8_t Send_NOK(void);
 #define DIGITAL_IN_4_GPIO_Port GPIOB
 #define DIGITAL_IN_5_Pin GPIO_PIN_15
 #define DIGITAL_IN_5_GPIO_Port GPIOB
+#define DATA_OVERRUN_Pin GPIO_PIN_15
+#define DATA_OVERRUN_GPIO_Port GPIOA
 #define AIN_RANGE_SELECT_CLK_Pin GPIO_PIN_0
 #define AIN_RANGE_SELECT_CLK_GPIO_Port GPIOD
 #define AIN_RANGE_SELECT_CLR_Pin GPIO_PIN_1

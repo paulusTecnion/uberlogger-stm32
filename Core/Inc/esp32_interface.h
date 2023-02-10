@@ -80,16 +80,35 @@ typedef enum log_mode_e {
 
 
 
-struct  {
-    adc_resolution_t adc_resolution;
-    adc_sample_rate_t log_sample_rate; // can make this one out of fixed options
-    uint8_t adc_channel_type; // indicate whether channel 0..7 are normal ADC (bit = 0) or NTC (bit = 1). LSB = channel 0, MSB = channel 7
-    uint8_t adc_channels_enabled; // Indicate whether an ADC channel should be enabled or not. Each bit represents a channel. LSB = 0 channel 0 (Mask 0x01), MSB = channel 7 (Mask 0x80)
-	uint8_t adc_channel_range; // Indicate what the range of channel 0..7 is -10V / +10 (bit = 0) or -60V / +60V (bit = 1)
-	uint8_t logMode;
-	char wifi_ssid[MAX_WIFI_SSID_LEN];
-	char wifi_password[MAX_WIFI_PASSW_LEN];
-	uint8_t wifi_channel;
-} Settings_t;
+typedef enum  {
+	CMD_NOP = 0x00,
+	STM32_CMD_SETTINGS_MODE,
+	STM32_CMD_SETTINGS_SYNC,
+	STM32_CMD_MEASURE_MODE,
+	STM32_CMD_SET_RESOLUTION,
+	STM32_CMD_SET_SAMPLE_RATE,
+	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
+	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
+	CMD_UNKNOWN
+} spi_cmd_esp_t;
+
+typedef struct {
+    uint8_t command;
+    uint8_t data;
+    uint16_t dummy;
+} spi_cmd_t;
+
+enum   {
+	RESP_OK = 0x01,
+	RESP_NOK
+};
+
+typedef enum {
+	CMD_RESP_NOP = 0x00,
+	CMD_RESP_OK,
+	CMD_RESP_NOK
+} spi_cmd_resp_t;
+
+
 
 #endif /* INC_ESP32_INTERFACE_H_ */
