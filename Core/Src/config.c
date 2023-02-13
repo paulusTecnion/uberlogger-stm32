@@ -1,3 +1,4 @@
+#include <spi_ctrl.h>
 #include "config.h"
 #include "msg.h"
 #include "stm32g0xx_hal.h"
@@ -10,9 +11,7 @@ extern TIM_HandleTypeDef htim3;
 extern MessageQueue_t mainQ;
 
 extern RTC_HandleTypeDef hrtc;
-MessageQueue_t configQ;
-
-
+extern uint8_t main_exit_config ;
 
 
 void Config_Handler(spi_cmd_t *  cmd)
@@ -28,8 +27,9 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  resp.command = CMD_NOP;
 				  resp.data = CMD_RESP_OK;
 
+
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
-				  //HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
+
 				  break;
 
 			  case STM32_CMD_MEASURE_MODE:
@@ -38,13 +38,10 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  resp.data = CMD_RESP_OK;
 
 
-	//			  if (HAL_SPI_Send_cmd(STM32_CMD_MEASURE_MODE, CMD_RESP_OK) == HAL_OK)
 				  if (spi_ctrl_send((uint8_t*)&resp, sizeof(resp)) == HAL_OK)
 				  {
 					  ADC_Reinit();
-					  Message_t t;
-					  t.event = EVENT_CONFIG_EXIT_HANDLER;
-					  msgq_enqueue(&mainQ, t);
+					  main_exit_config = 1;
 				  }
 				  break;
 
@@ -54,12 +51,12 @@ void Config_Handler(spi_cmd_t *  cmd)
 					  resp.command = STM32_CMD_SET_RESOLUTION;
 					  resp.data = CMD_RESP_OK;
 
-	//				  HAL_SPI_Send_cmd(STM32_CMD_SET_RESOLUTION, CMD_RESP_OK);
+
 				  } else {
 					  resp.command = STM32_CMD_SET_RESOLUTION;
 					  resp.data = CMD_RESP_NOK;
 
-	//				  HAL_SPI_Send_cmd(STM32_CMD_SET_RESOLUTION, CMD_RESP_NOK);
+
 				  }
 
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
@@ -73,10 +70,10 @@ void Config_Handler(spi_cmd_t *  cmd)
 				if (!Config_Set_Sample_freq(cmd->data))
 				{
 					resp.data = CMD_RESP_OK;
-	//				HAL_SPI_Send_cmd(STM32_CMD_SET_SAMPLE_RATE, f);
+
 				} else {
 					resp.data = CMD_RESP_NOK;
-	//				HAL_SPI_Send_cmd(STM32_CMD_SET_SAMPLE_RATE, CMD_RESP_NOK);
+
 				}
 				spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
 
@@ -88,24 +85,22 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  if (!Config_Set_Adc_channels(cmd->data))
 				  {
 					  resp.data = CMD_RESP_OK;
-	//				  HAL_SPI_Send_cmd(STM32_CMD_SET_ADC_CHANNELS_ENABLED, CMD_RESP_OK);
+
 				  } else {
 					  resp.data = CMD_RESP_NOK;
-	//				  HAL_SPI_Send_cmd(STM32_CMD_SET_ADC_CHANNELS_ENABLED, CMD_RESP_NOK);
+
 				  }
 
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
 				  break;
 
-		//			  case STM32_CMD_CONFIG_SET_DAC_PWM:
-		//
-		//				  break;
+
 
 			  default:
 				  resp.command = CMD_UNKNOWN;
 				  resp.data = CMD_RESP_NOK;
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
-	//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
+
 
 		  }
 

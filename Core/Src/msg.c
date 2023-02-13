@@ -34,3 +34,4 @@ uint8_t msgq_is_empty(MessageQueue_t *queue) {
 uint8_t msgq_is_full( MessageQueue_t *queue) {
   return queue->count == QUEUE_SIZE;
 }
+

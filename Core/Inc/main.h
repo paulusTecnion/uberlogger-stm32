@@ -34,7 +34,7 @@ extern "C" {
 #include "esp32_interface.h"
 #include "events.h"
 #include "msg.h"
-#include "spi_ctrl.h"
+
 #include "config.h"
 /* USER CODE END Includes */
 
@@ -109,6 +109,8 @@ void ADC_Reinit();
 #define AIN_RANGE_SELECT_CLK_GPIO_Port GPIOD
 #define AIN_RANGE_SELECT_CLR_Pin GPIO_PIN_1
 #define AIN_RANGE_SELECT_CLR_GPIO_Port GPIOD
+#define AIN_PULLUP_SELECT_CLK_Pin GPIO_PIN_2
+#define AIN_PULLUP_SELECT_CLK_GPIO_Port GPIOD
 #define AIN_PULLUP_SELECT_CLR_Pin GPIO_PIN_3
 #define AIN_PULLUP_SELECT_CLR_GPIO_Port GPIOD
 #define STM_DATA_RDY_Pin GPIO_PIN_6
