@@ -9,15 +9,20 @@ extern TIM_HandleTypeDef htim14;
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+	// Clear timeout interrupt
+	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_SENDING);
-	// Reset counter
+
 	TIM14->CNT = 0;
-	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
+	_next_spi_state = SPI_CTRL_IDLE;
+//	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
 }
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+	// Clear timeout interrupt
+	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
 	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
 }
@@ -33,8 +38,16 @@ HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length)
 		if (errorcode == HAL_OK)
 		{
 			SET_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
+			// clear interrupt flag
+			CLEAR_BIT(TIM14->SR,TIM_SR_UIF);
 			TIM14->CNT = 0;
-			HAL_TIM_Base_Start_IT(&htim14);
+			// Enable interrupt
+			SET_BIT(TIM14->DIER,TIM_DIER_UIE);
+			// reset timer
+//			TIM14->SR &= ~TIM_SR_UIF;
+
+			//HAL_TIM_Base_Start_IT(&htim14);
+
 			return errorcode;
 		}
 
@@ -57,8 +70,13 @@ HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length)
 		{
 			HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, SET);
 			SET_BIT(spi_ctrl_state, SPI_CTRL_SENDING);
+
+			// clear interrupt flag
+			CLEAR_BIT(TIM14->SR,TIM_SR_UIF);
 			TIM14->CNT = 0;
-			HAL_TIM_Base_Start(&htim14);
+			// Enable interrupt
+			SET_BIT(TIM14->DIER,TIM_DIER_UIE);
+
 			return errorcode;
 		}
 
@@ -123,18 +141,19 @@ void spi_ctrl_loop()
 			break;
 
 		case SPI_CTRL_SENDING:
-			if (READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT))
-			{
-				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
-				_next_spi_state = SPI_CTRL_IDLE;
-			}
-			else
+//			if (READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT))
+//			{
+//				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
+//				_next_spi_state = SPI_CTRL_IDLE;
+//			}
+//			else
 			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT))
 			{
 			// stop timeout timer
-				HAL_TIM_Base_Stop_IT(&htim14);
+//				HAL_TIM_Base_Stop_IT(&htim14);
 				// clear timeout counter
 				TIM14->CNT = 0;
+
 				HAL_SPI_DMAStop(&hspi1);
 				// Not necessary for receiving, but no harm in making data_rdy low
 				HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
@@ -150,16 +169,12 @@ void spi_ctrl_loop()
 			break;
 
 		case SPI_CTRL_RECEIVING:
-//			if (READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED))
-//			{
-//				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
-//				_next_spi_state = SPI_CTRL_IDLE;
-//			}
-//			else
+			// Intentionally, we don't check for received messages here, but
+			// in spi_ctrl_msg_received, since we want to deal with that asap.
 			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT))
 			{
 				// stop timeout timer
-					HAL_TIM_Base_Stop_IT(&htim14);
+//					HAL_TIM_Base_Stop_IT(&htim14);
 					// clear timeout counter
 					TIM14->CNT = 0;
 					HAL_SPI_DMAStop(&hspi1);
