@@ -110,7 +110,7 @@ static RTC_DateTypeDef current_date;
 // Variable for retrieving the
 s_date_time_t current_date_time;
 
-uint16_t tim3_counter = 0;
+int16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
 typedef struct {
@@ -133,14 +133,14 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
-volatile uint8_t spiSent = 0;
+
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 uint8_t rxbuffer[20];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
 extern uint8_t spi_ctrl_state;
-uint8_t overrun = 0;
+uint8_t overrun = 0, adc_ready = 0;
 
 
 
@@ -169,30 +169,59 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 	if (htim == &htim14)
 	{
+		// Disable interrupt
+		TIM14->DIER &= ~TIM_DIER_UIE;
+		// Indicate timeout
 		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
 	}
 
 	if (htim == &htim3 )
 	  {
+		if (adc_ready)
+		{
+			gpio_result_write_ptr = 0;
+			time_result_write_ptr = 0;
+			tim3_counter=0;
+			// Half way we have the pointers start at the beginning
+			if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+			{
+				overrun = 1;
+				return;
+			}
+			if (adc_is_half)
+			{
+				spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+			} else {
+				spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+			}
+			adc_ready = 0;
+		}
+
 		tim3_counter++;
+
+		 // Check which version of the timer triggered this callback and toggle LED
+		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BCD);
+		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BCD);
+
+		current_date_time.year = current_date.Year;
+		current_date_time.month = current_date.Month;
+		current_date_time.date = current_date.Date;
+		current_date_time.hours = current_time.Hours;
+		current_date_time.minutes = current_time.Minutes;
+		current_date_time.seconds = current_time.Seconds;
+		// Next line not 100% correct!
+		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
 
 		// Are still in the first ADC half?
 		if (!adc_is_half)
 		{
-//			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-
-//			memcpy((void*) (gpio_start_pointer_1 + gpio_result_write_ptr), (void*) 0x50000411, 1);
-////			// Store time
-//			memcpy((void*) (time_start_pointer_1 + time_result_write_ptr), &current_date_time, sizeof(current_date_time));
+			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
 			spi_msg_1_ptr->dataLen = tim3_counter;
 		} else { // If not, we fill the second part
-//			memcpy((void*) (gpio_start_pointer_2 + gpio_result_write_ptr), (void*) 0x50000411, 1);
-////
-//			memcpy((void*) (time_start_pointer_2 + time_result_write_ptr), &current_date_time, sizeof(current_date_time));
 			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
 			spi_msg_2_ptr->dataLen = tim3_counter;
 		}
 //
@@ -218,48 +247,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
-
-//		HAL_StatusTypeDef ret;
 		adc_is_half = 1;
-		gpio_result_write_ptr = 0;
-		time_result_write_ptr = 0;
-		tim3_counter=0;
-		// Half way we have the pointers start at the beginning
-		if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-		{
-			overrun = 1;
-			return;
-		}
-		spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-
-//		ret= HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)spi_msg_1_ptr,   sizeof(spi_msg_1_t));
-//		if (ret == HAL_OK)
-//			HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-
-
+		adc_ready = 1;
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-
-//		HAL_StatusTypeDef ret;
 		adc_is_half = 0;
-		gpio_result_write_ptr = 0;
-		time_result_write_ptr = 0;
-		tim3_counter=0;
-
-		if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-		{
-			overrun = 1;
-			return;
-		}
-		// At the last ADC sample, we have to send data from half-way the data_buffer size.
-
-//		spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-		spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-//		if (ret == HAL_OK)
-
-
+		adc_ready = 1;
 }
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
@@ -341,10 +336,9 @@ int main(void)
   spi_msg_2_ptr->stopByte[0]= 0xFF;
   spi_msg_2_ptr->stopByte[1]= 0xFF;
 
-
-/*  HAL_NVIC_EnableIRQ(SysTick_IRQn);
-  SCB->VTOR = FLASH_BASE;*/
-//  HAL_InitTick(1);
+  HAL_TIM_Base_Start(&htim14);
+  // Turn off the interrupt flag
+  TIM14->DIER &= ~TIM_DIER_UIE;
 
   /* USER CODE END 2 */
 
@@ -381,6 +375,13 @@ int main(void)
 			  if (logging_en && spi_ctrl_isIdle())
 			  {
 				  spi_ctrl_receive_abort();
+
+				  tim3_counter = 0;
+				  adc_is_half = 0;
+				  adc_ready = 0;
+				  gpio_result_write_ptr = 0;
+				  time_result_write_ptr = 0;
+
 				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
 				   hadc1 = hadc1_bak;
@@ -388,6 +389,8 @@ int main(void)
 				  ADC_Reinit();
 
 				  // Start TIM3 and DMA conversion
+				  TIM3->CNT = 0;
+
 				  HAL_TIM_Base_Start_IT(&htim3);
 				  HAL_ADC_Start_DMA(
 						  &hadc1,
@@ -425,6 +428,18 @@ int main(void)
 							  {
 								  NextState = MAIN_SINGLE_SHOT;
 							  }
+							  break;
+
+						  case STM32_CMD_SEND_LAST_ADC_BYTES:
+							  if (adc_is_half)
+							  {
+								  // adc_is_half == 1 means the last message sent was spi_msg_1
+								  // So we are now still writing in spi_msg_2.
+								  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+							  } else {
+								  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+							  }
+
 							  break;
 
 						  case CMD_NOP:
