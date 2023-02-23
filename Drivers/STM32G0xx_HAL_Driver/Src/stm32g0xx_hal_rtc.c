@@ -883,7 +883,7 @@ HAL_StatusTypeDef HAL_RTC_GetTime(RTC_HandleTypeDef *hrtc, RTC_TimeTypeDef *sTim
   sTime->TimeFormat = (uint8_t)((tmpreg & (RTC_TR_PM)) >> RTC_TR_PM_Pos);
 
   /* Check the input parameters format */
-  if(Format == RTC_FORMAT_BCD)
+  if(Format == RTC_FORMAT_BIN)
   {
     /* Convert the time structure parameters to Binary format */
     sTime->Hours = (uint8_t)RTC_Bcd2ToByte(sTime->Hours);
