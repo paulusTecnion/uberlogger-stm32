@@ -37,14 +37,6 @@
 /* USER CODE BEGIN PD */
 
 
-// One line of the spi buffer depends on at what stage of sending it is. For the first half of the ADC conversion we have:
-// So the SPI TX length is:
-// 2 start/stop bytes   = 2
-// 39*8*2 ADC           = 624
-// 39 * 1 GPIO          = 39
-// 39*(1+1+1+1+1+4) Time= 351
-//  Total               = 1016 bytes
-
 // WARNING: DO NOT CHANGE THE NEXT LINES UNLESS YOU KNOW WHAT YOU ARE DOING.
 // BYTES NEED TO BE 4 BYTES ALIGNED!
 #define DATA_LINES_PER_SPI_TRANSACTION  70
@@ -110,7 +102,7 @@ static RTC_DateTypeDef current_date;
 // Variable for retrieving the
 s_date_time_t current_date_time;
 
-int16_t tim3_counter = 0;
+uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
 typedef struct {
@@ -181,13 +173,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		{
 			gpio_result_write_ptr = 0;
 			time_result_write_ptr = 0;
-			tim3_counter=0;
 			// Half way we have the pointers start at the beginning
 			if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
 			{
 				overrun = 1;
 				return;
 			}
+
+			tim3_counter=0;
+
 			if (adc_is_half)
 			{
 				spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
@@ -200,8 +194,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		tim3_counter++;
 
 		 // Check which version of the timer triggered this callback and toggle LED
-		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BCD);
-		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BCD);
+		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
+		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
+		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
 
 		current_date_time.year = current_date.Year;
 		current_date_time.month = current_date.Month;
@@ -213,7 +208,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
 
 		// Are still in the first ADC half?
-		if (!adc_is_half)
+		if (!adc_is_half && (tim3_counter <= DATA_LINES_PER_SPI_TRANSACTION))
 		{
 			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
@@ -300,7 +295,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -331,13 +328,13 @@ int main(void)
   // Backup current adc settings
   hadc1_bak = hadc1;
 
-  spi_msg_1_ptr->startByte[0] = 0xFF;
-  spi_msg_1_ptr->startByte[1] = 0xFF;
-  spi_msg_2_ptr->stopByte[0]= 0xFF;
-  spi_msg_2_ptr->stopByte[1]= 0xFF;
+  spi_msg_1_ptr->startByte[0] = 0xFA;
+  spi_msg_1_ptr->startByte[1] = 0xFB;
+  spi_msg_2_ptr->stopByte[0]= 0xFB;
+  spi_msg_2_ptr->stopByte[1]= 0xFA;
 
   HAL_TIM_Base_Start(&htim14);
-  // Turn off the interrupt flag
+  // Turn off the interrupt flag for timer 14.
   TIM14->DIER &= ~TIM_DIER_UIE;
 
   /* USER CODE END 2 */
@@ -385,17 +382,19 @@ int main(void)
 				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
 				   hadc1 = hadc1_bak;
+				  // Disable ADC
+				  HAL_ADC_DeInit(&hadc1);
 				  // Reinit ADC
 				  ADC_Reinit();
 
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
 
-				  HAL_TIM_Base_Start_IT(&htim3);
 				  HAL_ADC_Start_DMA(
 						  &hadc1,
 						  (uint32_t*)(spi_msg_1_ptr->adcData),
 						  ADC_BUFFERSIZE_SAMPLES);
+				  HAL_TIM_Base_Start_IT(&htim3);
 
 				  NextState = MAIN_LOGGING;
 			  } else  {
@@ -493,6 +492,14 @@ int main(void)
 			  // Set timer to 100Hz
 			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
 
+			  tim3_counter = 0;
+			  adc_is_half = 0;
+			  adc_ready = 0;
+			  gpio_result_write_ptr = 0;
+			  time_result_write_ptr = 0;
+
+			  TIM3->CNT = 0;
+
 			  HAL_TIM_Base_Start_IT(&htim3);
 			  HAL_ADC_Start_DMA(
 					  &hadc1,
@@ -504,13 +511,12 @@ int main(void)
 			  // Set ADC to single conversion measure mode
 			  NextState = MAIN_SINGLE_SHOT_AWAIT_RESULT;
 
-
 			  break;
 		  }
 
 		  case MAIN_SINGLE_SHOT_AWAIT_RESULT:
 
-			  if (spi_ctrl_isIdle())
+			  if (tim3_counter > 15)
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);
 				 HAL_ADC_Stop_DMA(&hadc1);
@@ -546,12 +552,17 @@ void SystemClock_Config(void)
   */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_HIGH);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -609,7 +620,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.NbrOfConversion = 8;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
@@ -751,7 +762,7 @@ static void MX_RTC_Init(void)
     Error_Handler();
   }
   sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Month = RTC_MONTH_FEBRUARY;
   sDate.Date = 0x1;
   sDate.Year = 0x17;
 
