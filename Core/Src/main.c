@@ -165,7 +165,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim == &htim14)
 	{
 		// Disable interrupt
-		TIM14->DIER &= ~TIM_DIER_UIE;
+//		TIM14->DIER &= ~TIM_DIER_UIE;
+		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 		// Indicate timeout
 		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
 	}
@@ -368,6 +369,9 @@ int main(void)
 				  overrun =0;
 				  HAL_TIM_Base_Stop_IT(&htim3);
 				  HAL_ADC_Stop_DMA(&hadc1);
+
+				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
+				  HAL_Delay(50);
 				  // Set ADC to single conversion measure mode
 				  NextState = MAIN_IDLE;
 			  }
@@ -386,11 +390,12 @@ int main(void)
 
 				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
-				   hadc1 = hadc1_bak;
+//				  hadc1 = hadc1_bak;
 				  // Disable ADC
 				  HAL_ADC_DeInit(&hadc1);
 				  // Reinit ADC
-				  ADC_Reinit();
+				  MX_ADC1_Init();
+//				  ADC_Reinit();
 
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
