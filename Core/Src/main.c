@@ -154,6 +154,9 @@ static void MX_TIM14_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+// From https://github.com/LonelyWolf/stm32/blob/master/stm32l-dosfs/RTC.c
+// Convert epoch time to Date/Time structures
+
 
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -197,6 +200,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
 		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
 		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
+
+
 
 		current_date_time.year = current_date.Year;
 		current_date_time.month = current_date.Month;
@@ -411,7 +416,7 @@ int main(void)
 							  resp.command = STM32_CMD_SETTINGS_MODE;
 							  resp.data = CMD_RESP_OK;
 					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
-							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(resp)) == HAL_OK)
+							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 							  {
 								  NextState = MAIN_CONFIG;
 							  }
@@ -423,7 +428,7 @@ int main(void)
 							  resp.command = STM32_CMD_SINGLE_SHOT_MEASUREMENT;
 							  resp.data = CMD_RESP_OK;
 					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SINGLE_SHOT_MEASUREMENT, CMD_RESP_OK) == HAL_OK)
-							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(resp)) == HAL_OK)
+							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 							  {
 								  NextState = MAIN_SINGLE_SHOT;
 							  }
@@ -445,14 +450,14 @@ int main(void)
 					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 							  resp.command = CMD_NOP;
 							  resp.data = CMD_RESP_OK;
-							  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 							  break;
 
 						  default:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
 							  resp.command = CMD_NOP;
 							  resp.data = CMD_RESP_NOK;
-							  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
 					  }
 
@@ -487,8 +492,7 @@ int main(void)
 
 		  case MAIN_SINGLE_SHOT:
 		  {
-
-			   htim3_bak = htim3;
+			  htim3_bak = htim3;
 			  // Set timer to 100Hz
 			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
 
@@ -515,7 +519,10 @@ int main(void)
 		  }
 
 		  case MAIN_SINGLE_SHOT_AWAIT_RESULT:
-
+			  if (spi_ctrl_isIdle())
+			  {
+				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+			  }
 			  if (tim3_counter > 15)
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);

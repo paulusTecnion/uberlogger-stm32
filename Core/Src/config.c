@@ -28,7 +28,7 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  resp.data = CMD_RESP_OK;
 
 
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
 				  break;
 
@@ -38,7 +38,7 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  resp.data = CMD_RESP_OK;
 
 
-				  if (spi_ctrl_send((uint8_t*)&resp, sizeof(resp)) == HAL_OK)
+				  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 				  {
 					  ADC_Reinit();
 					  main_exit_config = 1;
@@ -59,7 +59,7 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				  }
 
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
 				  break;
 
@@ -75,7 +75,7 @@ void Config_Handler(spi_cmd_t *  cmd)
 					resp.data = CMD_RESP_NOK;
 
 				}
-				spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+				spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
 				break;
 
@@ -91,15 +91,32 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				  }
 
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 				  break;
 
+			  case STM32_CMD_SET_DATETIME:
+				  resp.command = STM32_CMD_SET_DATETIME;
 
+				  uint32_t epoch;
+
+				  memcpy((void*)&epoch, (const void*)&cmd->data, sizeof(epoch));
+				  if (!Config_Set_Time(epoch))
+				  {
+					  resp.data = CMD_RESP_OK;
+
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+
+				  }
+
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+
+				  break;
 
 			  default:
 				  resp.command = CMD_UNKNOWN;
 				  resp.data = CMD_RESP_NOK;
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(resp));
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
 
 		  }
@@ -132,6 +149,65 @@ void Config_Handler(spi_cmd_t *  cmd)
 //
 //
 //}
+
+uint8_t Config_Set_Time(uint32_t epoch)
+{
+
+	RTC_TimeTypeDef time;
+	RTC_DateTypeDef date;
+
+	uint32_t tm;
+	uint32_t t1;
+	uint32_t a;
+	uint32_t b;
+	uint32_t c;
+	uint32_t d;
+	uint32_t e;
+	uint32_t m;
+	int16_t  year  = 0;
+	int16_t  month = 0;
+	int16_t  dow   = 0;
+	int16_t  mday  = 0;
+	int16_t  hour  = 0;
+	int16_t  min   = 0;
+	int16_t  sec   = 0;
+	uint64_t JD    = 0;
+	uint64_t JDN   = 0;
+
+	// These hardcore math's are taken from http://en.wikipedia.org/wiki/Julian_day
+
+	JD  = ((epoch + 43200) / (86400 >>1 )) + (2440587 << 1) + 1;
+	JDN = JD >> 1;
+
+	tm = epoch; t1 = tm / 60; sec  = tm - (t1 * 60);
+	tm = t1;    t1 = tm / 60; min  = tm - (t1 * 60);
+	tm = t1;    t1 = tm / 24; hour = tm - (t1 * 24);
+
+	dow   = JDN % 7;
+	a     = JDN + 32044;
+	b     = ((4 * a) + 3) / 146097;
+	c     = a - ((146097 * b) / 4);
+	d     = ((4 * c) + 3) / 1461;
+	e     = c - ((1461 * d) / 4);
+	m     = ((5 * e) + 2) / 153;
+	mday  = e - (((153 * m) + 2) / 5) + 1;
+	month = m + 3 - (12 * (m / 10));
+	year  = (100 * b) + d - 4800 + (m / 10);
+
+	date.Year    = year - 2000;
+	date.Month   = month;
+	date.Date    = mday;
+	date.WeekDay = dow;
+	time.Hours   = hour;
+	time.Minutes = min;
+	time.Seconds = sec;
+
+
+	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
+	HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
+
+	return 0;
+}
 
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 {

@@ -88,6 +88,7 @@ typedef enum  {
 	STM32_CMD_SET_RESOLUTION,
 	STM32_CMD_SET_SAMPLE_RATE,
 	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
+	STM32_CMD_SET_DATETIME,
 	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
 	STM32_CMD_SEND_LAST_ADC_BYTES,
 	CMD_UNKNOWN
@@ -96,16 +97,21 @@ typedef enum  {
 typedef struct {
     uint8_t command;
     uint8_t data;
-    uint16_t dummy;
+    uint8_t data1;
+    uint8_t data2;
+    uint8_t data3;
+    uint8_t data4;
+    uint8_t data5;
+    uint8_t data6;
 } spi_cmd_t;
 
 enum   {
-	RESP_OK = 0x01,
+	RESP_OK = 1,
 	RESP_NOK
 };
 
 typedef enum {
-	CMD_RESP_NOP = 0x00,
+	CMD_RESP_NOP = 0,
 	CMD_RESP_OK,
 	CMD_RESP_NOK
 } spi_cmd_resp_t;

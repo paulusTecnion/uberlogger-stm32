@@ -13,6 +13,7 @@ void Config_Handler(spi_cmd_t *  cmd);
 uint8_t Config_Set_Adc_channels(uint8_t channels);
 uint8_t Config_Set_Resolution(uint8_t resolution);
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
+uint8_t Config_Set_Time(uint32_t epoch);
 #endif
 
 
