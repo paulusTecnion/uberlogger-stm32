@@ -380,8 +380,6 @@ int main(void)
 		  case MAIN_IDLE:
 			  if (logging_en && spi_ctrl_isIdle())
 			  {
-				  spi_ctrl_receive_abort();
-
 				  tim3_counter = 0;
 				  adc_is_half = 0;
 				  adc_ready = 0;

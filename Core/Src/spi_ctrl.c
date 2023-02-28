@@ -6,6 +6,7 @@ uint8_t _curr_spi_state = SPI_CTRL_IDLE, _next_spi_state = SPI_CTRL_IDLE;
 extern SPI_HandleTypeDef hspi1;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim14;
+extern uint8_t logging_en;
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
@@ -62,6 +63,7 @@ HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length)
 HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length)
 {
 	HAL_StatusTypeDef errorcode;
+
 	if (spi_ctrl_isIdle())
 	{
 		errorcode = HAL_SPI_Transmit_DMA(&hspi1, data, length);
@@ -85,11 +87,6 @@ HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length)
 	}
 
 	return HAL_BUSY;
-
-}
-
-void spi_ctrl_receive_abort()
-{
 
 }
 
