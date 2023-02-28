@@ -451,9 +451,9 @@ int main(void)
 
 						  case CMD_NOP:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
-							  resp.command = CMD_NOP;
-							  resp.data = CMD_RESP_OK;
-							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+//							  resp.command = CMD_NOP;
+//							  resp.data = CMD_RESP_OK;
+//							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 							  break;
 
 						  default:
