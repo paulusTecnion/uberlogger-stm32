@@ -133,6 +133,7 @@ spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t))
 
 extern uint8_t spi_ctrl_state;
 uint8_t overrun = 0, adc_ready = 0;
+uint8_t datardypin;
 
 
 
@@ -354,7 +355,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  spi_ctrl_loop();
 //	  Config_Handler();
-
+	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
 
 	  switch(MainState)
 	  {
@@ -526,7 +527,7 @@ int main(void)
 			  {
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
-			  if (tim3_counter > 15)
+			  if (tim3_counter > 2)
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);
 				 HAL_ADC_Stop_DMA(&hadc1);
