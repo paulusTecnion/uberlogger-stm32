@@ -264,12 +264,6 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 		 break;
 
-//	 case ADC_SAMPLE_RATE_400Hz:
-//		 htim3.Init.Prescaler = 10;
-//		 htim3.Init.Period = 16000;
-//
-//		 break;
-
 	 case ADC_SAMPLE_RATE_500Hz:
 		 htim3.Init.Prescaler = 10;
 		 htim3.Init.Period = 12800;
@@ -301,22 +295,22 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 			 break;
 
 
-	 case ADC_SAMPLE_RATE_5000Hz:
-		 htim3.Init.Prescaler = 1;
-		 htim3.Init.Period = 12800;
-
-		 break;
+//	 case ADC_SAMPLE_RATE_5000Hz:
+//		 htim3.Init.Prescaler = 1;
+//		 htim3.Init.Period = 12800;
+//
+//		 break;
 
 //	 case ADC_SAMPLE_RATE_8000Hz:
 //		 htim3.Init.Prescaler = 1;
 //		 htim3.Init.Period = 8000;
 //
 //		 break;
-	 case ADC_SAMPLE_RATE_10000Hz:
-		 htim3.Init.Prescaler = 1;
-		 htim3.Init.Period = 6400;
-
-		 break;
+//	 case ADC_SAMPLE_RATE_10000Hz:
+//		 htim3.Init.Prescaler = 1;
+//		 htim3.Init.Period = 6400;
+//
+//		 break;
 //	 case ADC_SAMPLE_RATE_20000Hz:
 //		 htim3.Init.Prescaler = 1;
 //		 htim3.Init.Period = 3200;
