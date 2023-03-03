@@ -368,6 +368,8 @@ int main(void)
 					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
 				  }
 				  overrun =0;
+				  // reset the this variable to 0, since we expect that a "
+
 				  HAL_TIM_Base_Stop_IT(&htim3);
 				  HAL_ADC_Stop_DMA(&hadc1);
 
