@@ -166,8 +166,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim == &htim14)
 	{
 		// Disable interrupt
-//		TIM14->DIER &= ~TIM_DIER_UIE;
-		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+		TIM14->DIER &= ~TIM_DIER_UIE;
+//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+		TIM14->CNT = 0;
 		// Indicate timeout
 		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
 	}
