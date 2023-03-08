@@ -125,11 +125,32 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
+typedef struct {
+    uint8_t startByte[START_STOP_NUM_BYTES]; // 2
+    uint16_t dataLen;
+    uint8_t padding3;
+    uint8_t padding4;
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+} spi_msg_1_raw_t;
+
+typedef struct {
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t padding1;
+    uint8_t padding2;
+    uint16_t dataLen;
+    uint8_t stopByte[START_STOP_NUM_BYTES];
+} spi_msg_2_raw_t;
+
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 uint8_t rxbuffer[20];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
+
+log_mode_t logMode = LOGMODE_CSV;
+uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 extern uint8_t spi_ctrl_state;
 uint8_t overrun = 0, adc_ready = 0;
@@ -1005,26 +1026,7 @@ void ADC_Reinit()
 }
 
 
-void Idle_Handler(Message_t * msg)
-{
-//	uint8_t retVal;
 
-//	 Blocking SPI read with 1000 clock cycles timeout.
-//	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, sizeof(spi_cmd_t), 100);
-
-//	spi_cmd_t * cmd = (spi_cmd_t*)RxBuffer;
-
-/*
-	if( retVal == HAL_ERROR)
-	{
-	   Transfer error in transmission process
-	  Error_Handler();
-	}
-	else if (retVal == HAL_OK)
-	{*/
-
-
-}
 
 //uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //{

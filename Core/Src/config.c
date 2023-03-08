@@ -8,11 +8,10 @@ extern ADC_HandleTypeDef hadc1;
 extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim3;
 
-extern MessageQueue_t mainQ;
-
 extern RTC_HandleTypeDef hrtc;
 extern uint8_t main_exit_config ;
-
+extern log_mode_t logMode;
+extern uint8_t _data_lines_per_transaction;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -113,6 +112,19 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				  break;
 
+			  case STM32_CMD_SET_LOGMODE:
+				  resp.command = STM32_CMD_SET_LOGMODE;
+				  if (!Config_set_logMode(cmd->data, cmd->data1))
+				  {
+					  resp.data = CMD_RESP_OK;
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+				  }
+
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+				  break;
+
+
 			  default:
 				  resp.command = CMD_UNKNOWN;
 				  resp.data = CMD_RESP_NOK;
@@ -123,32 +135,27 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 }
 
-//static void ADC_Set_Single_Acq()
-//{
-//
-//
-//	  hadc1.Instance = ADC1;
-//	  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
-//	  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-//	  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-//	  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-//	  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
-//	  hadc1.Init.LowPowerAutoWait = DISABLE;
-//	  hadc1.Init.LowPowerAutoPowerOff = DISABLE;
-//	  hadc1.Init.ContinuousConvMode = ENABLE;
-//	  hadc1.Init.NbrOfConversion = 8;
-//	  hadc1.Init.DiscontinuousConvMode = DISABLE;
-//	  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-//	  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-//	  hadc1.Init.DMAContinuousRequests = DISABLE;
-//	  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-//	  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
-//	  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
-//	  hadc1.Init.OversamplingMode = DISABLE;
-//	  hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
-//
-//
-//}
+
+
+uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
+{
+	switch (logtype)
+	{
+	case LOGMODE_CSV:
+	case LOGMODE_RAW:
+		logMode = logtype;
+		_data_lines_per_transaction = data_lines_per_transaction;
+		return 0;
+		break;
+
+	default:
+
+		logMode = LOGMODE_UNKNOWN_TYPE;
+		return 1;
+
+	}
+
+}
 
 uint8_t Config_Set_Time(uint32_t epoch)
 {

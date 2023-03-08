@@ -75,7 +75,8 @@ typedef enum adc_sample_rate_e {
 
 typedef enum log_mode_e {
     LOGMODE_RAW = 0,
-    LOGMODE_CSV
+    LOGMODE_CSV,
+	LOGMODE_UNKNOWN_TYPE
 } log_mode_t;
 
 
@@ -91,6 +92,7 @@ typedef enum  {
 	STM32_CMD_SET_DATETIME,
 	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
 	STM32_CMD_SEND_LAST_ADC_BYTES,
+	STM32_CMD_SET_LOGMODE,
 	CMD_UNKNOWN
 } spi_cmd_esp_t;
 

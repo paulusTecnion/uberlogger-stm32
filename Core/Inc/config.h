@@ -14,6 +14,7 @@ uint8_t Config_Set_Adc_channels(uint8_t channels);
 uint8_t Config_Set_Resolution(uint8_t resolution);
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
 uint8_t Config_Set_Time(uint32_t epoch);
+uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction);
 #endif
 
 
