@@ -11,7 +11,7 @@ extern uint8_t logging_en;
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
 	// Clear timeout interrupt
-	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+//	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_SENDING);
 
@@ -22,8 +22,9 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+	TIM14->CNT = 0;
 	// Clear timeout interrupt
-	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+//	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
 	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
 }
