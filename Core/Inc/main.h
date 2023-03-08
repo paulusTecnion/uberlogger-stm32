@@ -33,7 +33,7 @@ extern "C" {
 /* USER CODE BEGIN Includes */
 #include "esp32_interface.h"
 #include "events.h"
-#include "msg.h"
+//#include "msg.h"
 
 #include "config.h"
 /* USER CODE END Includes */
@@ -86,7 +86,7 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 
 
-void Idle_Handler(Message_t * msg);
+
 void ADC_Reinit();
 /* USER CODE END EFP */
 

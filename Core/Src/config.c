@@ -1,6 +1,6 @@
 #include <spi_ctrl.h>
 #include "config.h"
-#include "msg.h"
+//#include "msg.h"
 #include "stm32g0xx_hal.h"
 
 extern SPI_HandleTypeDef * hspi1;
