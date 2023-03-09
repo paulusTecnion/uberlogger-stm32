@@ -21,7 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "esp32_interface.h"
+#include "stdint.h"
+#include "string.h"
+#include <time.h>
+#include "spi_ctrl.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,44 +35,129 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+
+// WARNING: DO NOT CHANGE THE NEXT LINES UNLESS YOU KNOW WHAT YOU ARE DOING.
+// BYTES NEED TO BE 4 BYTES ALIGNED!
+#define DATA_LINES_PER_SPI_TRANSACTION  70
+#define ADC_VALUES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*8 // Number of ADC uint16_t per transaction. This is 5 times 480 ADC values
+#define ADC_BYTES_PER_SPI_TRANSACTION ADC_VALUES_PER_SPI_TRANSACTION*2
+#define GPIO_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*1
+#define TIME_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*12
+#define START_STOP_NUM_BYTES            2
+
+
+// Number of bytes when receiving data from the STM
+#define STM_SPI_BUFFERSIZE_DATA_TX      (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION + START_STOP_NUM_BYTES)
+#define STM_DATA_BUFFER_SIZE_PER_TRANSACTION (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION)
+
+//#define STM_SPI_BUFFERSIZE_DATA_TX 1020
+#define ADC_BUFFERSIZE_SAMPLES ADC_VALUES_PER_SPI_TRANSACTION*2
+#define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
+#define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
+#define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define BUFFERSIZE 3*sizeof(uint16_t) // 3 channels * uint16
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+RTC_HandleTypeDef hrtc;
+
 SPI_HandleTypeDef hspi1;
 DMA_HandleTypeDef hdma_spi1_tx;
 DMA_HandleTypeDef hdma_spi1_rx;
 
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim14;
 
 /* USER CODE BEGIN PV */
-uint8_t MainState = MAIN_IDLE;
+TIM_HandleTypeDef htim3_bak;
+uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
 uint8_t logging_en = 0;
-uint8_t RxBuffer[1];
+uint8_t msgRx = 0;
+uint8_t cmd_buffer[ 20];
+//spi_cmd_t cmd_buffer;
+
+ADC_HandleTypeDef hadc1_bak;
+
+uint8_t main_exit_config = 0;
+
+volatile uint16_t data_buffer_write_ptr = 0;
+volatile uint32_t gpio_result_write_ptr = 0;
+volatile uint32_t time_result_write_ptr = 0;
+
+static uint8_t adc_is_half = 0;
+
+static RTC_TimeTypeDef current_time;
+static RTC_DateTypeDef current_date;
+
+// Variable for retrieving the
+s_date_time_t current_date_time;
+
+uint16_t tim3_counter = 0;
+uint8_t tim14_event = 0;
+
+typedef struct {
+    uint8_t startByte[START_STOP_NUM_BYTES];
+    uint16_t dataLen;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint8_t padding3;
+    uint8_t padding4;
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+} spi_msg_1_t;
+
+typedef struct {
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t padding1;
+    uint8_t padding2;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint16_t dataLen;
+    uint8_t stopByte[START_STOP_NUM_BYTES];
+} spi_msg_2_t;
+
+typedef struct {
+    uint8_t startByte[START_STOP_NUM_BYTES]; // 2
+    uint16_t dataLen;
+    uint8_t padding3;
+    uint8_t padding4;
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+} spi_msg_1_raw_t;
+
+typedef struct {
+    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t padding1;
+    uint8_t padding2;
+    uint16_t dataLen;
+    uint8_t stopByte[START_STOP_NUM_BYTES];
+} spi_msg_2_raw_t;
 
 
-#define TESTBUFFERSIZE 8
+uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
+uint8_t rxbuffer[20];
+spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
-union _adc_result{
-	uint16_t  t16[TESTBUFFERSIZE];
-	uint8_t t8[TESTBUFFERSIZE*2];
-};
+log_mode_t logMode = LOGMODE_CSV;
+uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
-union _t{
-	uint16_t  t16[TESTBUFFERSIZE];
-	uint8_t t8[TESTBUFFERSIZE*2];
-};
+extern uint8_t spi_ctrl_state;
+uint8_t overrun = 0, adc_ready = 0;
+uint8_t datardypin;
 
-static union _adc_result adc_result;
-static union _t t;
-static int16_t counter = 0;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,68 +167,130 @@ static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_RTC_Init(void);
+static void MX_TIM14_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi)
-{
-	// Successfully transmitted values. Set data ready pin to low a
-//	MainState = MAIN_ADC_START;
-//	spiDone = 1;
-	HAL_SPI_DMAStop(&hspi1);
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-}
 
-//void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
-//{
-//
-//  Error_Handler();
-//}
+// From https://github.com/LonelyWolf/stm32/blob/master/stm32l-dosfs/RTC.c
+// Convert epoch time to Date/Time structures
+
+
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
- /* Prevent unused argument(s) compilation warning */
- UNUSED(htim);
 
+	if (htim == &htim14)
+	{
+		// Disable interrupt
+		TIM14->DIER &= ~TIM_DIER_UIE;
+//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+		TIM14->CNT = 0;
+		// Indicate timeout
+		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
+	}
+
+	if (htim == &htim3 )
+	  {
+		if (adc_ready)
+		{
+			gpio_result_write_ptr = 0;
+			time_result_write_ptr = 0;
+			// Half way we have the pointers start at the beginning
+			if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+			{
+				overrun = 1;
+				return;
+			}
+
+			tim3_counter=0;
+
+			if (adc_is_half)
+			{
+				spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+			} else {
+				spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+			}
+			adc_ready = 0;
+		}
+
+		tim3_counter++;
+
+		 // Check which version of the timer triggered this callback and toggle LED
+		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
+		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
+		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
+
+
+
+		current_date_time.year = current_date.Year;
+		current_date_time.month = current_date.Month;
+		current_date_time.date = current_date.Date;
+		current_date_time.hours = current_time.Hours;
+		current_date_time.minutes = current_time.Minutes;
+		current_date_time.seconds = current_time.Seconds;
+		// Next line not 100% correct!
+		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
+
+		// Are still in the first ADC half?
+		if (!adc_is_half && (tim3_counter <= DATA_LINES_PER_SPI_TRANSACTION))
+		{
+			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
+			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			spi_msg_1_ptr->dataLen = tim3_counter;
+		} else { // If not, we fill the second part
+			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			spi_msg_2_ptr->dataLen = tim3_counter;
+		}
+//
+		gpio_result_write_ptr++;
+//		time_result_write_ptr = time_result_write_ptr + sizeof(current_date_time);
+//e
+//		// to add: check for overrun
+		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
+		{
+			gpio_result_write_ptr = GPIO_BYTES_PER_SPI_TRANSACTION-1;
+		}
+//
+//		if (time_result_write_ptr <= TIME_BYTES_PER_SPI_TRANSACTION)
+//		{
+//			time_result_write_ptr = TIME_BYTES_PER_SPI_TRANSACTION-1;
+//		}
+
+	  }
+}
+
+
+
+
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
+{
+		adc_is_half = 1;
+		adc_ready = 1;
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-    // Conversion Complete & DMA Transfer Complete As Well
-    // So The AD_RES Is Now Updated & Let's Move IT To The PWM CCR1
-    // Update The PWM Duty Cycle With Latest ADC Conversion Result
-//	if (MainState == MAIN_ADC_CONVERTING)
-//	{
-//		MainState = MAIN_SPI_START;
-//	}
-
-	for (int j = 0; j < 8; j++)
-	{
-		t.t16[j] = counter;
-		counter++;
-		if (counter > 4095)
-		{
-			counter = 0;
-		}
-
-	}
-	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) t.t8,   TESTBUFFERSIZE*2);
-//	HAL_SPI_Transmit_DMA(&hspi1,  (uint8_t*) adc_result.t8,   TESTBUFFERSIZE*2);
-	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-
+		adc_is_half = 0;
+		adc_ready = 1;
 }
 
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
+{
+
+}
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
 			logging_en = 1;
-			HAL_TIM_Base_Start_IT(&htim3);
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_result.t16, sizeof(adc_result.t16)/sizeof(adc_result.t16[0]));
 	}
 }
 
@@ -147,10 +298,13 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
-		HAL_TIM_Base_Stop_IT(&htim3);
-		HAL_ADC_Stop_DMA(&hadc1);
+		//HAL_SPI_DMAStop(&hspi1);
+
+		logging_en = 0;
+
 	}
 }
+
 
 /* USER CODE END 0 */
 
@@ -170,7 +324,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -186,7 +342,29 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
+  MX_RTC_Init();
+  MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
+
+  // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
+  GPIOB->OSPEEDR |= (0x0200);
+
+  // Enable TIM1 interrupt
+//  TIM1->DIER |= TIM_DIER_UIE;
+//  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
+
+  HAL_ADCEx_Calibration_Start(&hadc1);
+  // Backup current adc settings
+  hadc1_bak = hadc1;
+
+  spi_msg_1_ptr->startByte[0] = 0xFA;
+  spi_msg_1_ptr->startByte[1] = 0xFB;
+  spi_msg_2_ptr->stopByte[0]= 0xFB;
+  spi_msg_2_ptr->stopByte[1]= 0xFA;
+
+  HAL_TIM_Base_Start(&htim14);
+  // Turn off the interrupt flag for timer 14.
+  TIM14->DIER &= ~TIM_DIER_UIE;
 
   /* USER CODE END 2 */
 
@@ -197,21 +375,202 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  spi_ctrl_loop();
+//	  Config_Handler();
+	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
+
 	  switch(MainState)
 	  {
-		  case MAIN_IDLE:
-			  if (!logging_en)
+	  	  case MAIN_LOGGING:
+			  // Doing nothing
+			  if (!logging_en || overrun)
 			  {
-				  Idle_Handler();
+				  if (overrun)
+				  {
+					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
+				  }
+				  overrun =0;
+				  // reset the this variable to 0, since we expect that a "
+
+				  HAL_TIM_Base_Stop_IT(&htim3);
+				  HAL_ADC_Stop_DMA(&hadc1);
+
+				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
+				  HAL_Delay(50);
+				  // Set ADC to single conversion measure mode
+				  NextState = MAIN_IDLE;
+			  }
+			  break;
+
+		  case MAIN_IDLE:
+			  if (logging_en && spi_ctrl_isIdle())
+			  {
+				  tim3_counter = 0;
+				  adc_is_half = 0;
+				  adc_ready = 0;
+				  gpio_result_write_ptr = 0;
+				  time_result_write_ptr = 0;
+
+				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
+				  // Make sure we have the original ADC config put in place
+//				  hadc1 = hadc1_bak;
+				  // Disable ADC
+				  HAL_ADC_DeInit(&hadc1);
+				  // Reinit ADC
+				  MX_ADC1_Init();
+//				  ADC_Reinit();
+
+				  // Start TIM3 and DMA conversion
+				  TIM3->CNT = 0;
+
+				  HAL_ADC_Start_DMA(
+						  &hadc1,
+						  (uint32_t*)(spi_msg_1_ptr->adcData),
+						  ADC_BUFFERSIZE_SAMPLES);
+				  HAL_TIM_Base_Start_IT(&htim3);
+
+				  NextState = MAIN_LOGGING;
+			  } else  {
+				  // Check for events
+
+				  if (spi_ctrl_msg_received())
+				  {
+					spi_cmd_t * cmd = (spi_cmd_t*)&cmd_buffer;
+					spi_cmd_t resp;
+					  switch(cmd->command)
+					  {
+
+						  case STM32_CMD_SETTINGS_MODE:
+							  resp.command = STM32_CMD_SETTINGS_MODE;
+							  resp.data = CMD_RESP_OK;
+					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
+							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
+							  {
+								  NextState = MAIN_CONFIG;
+							  }
+
+						  break;
+
+						  case STM32_CMD_SINGLE_SHOT_MEASUREMENT:
+
+							  resp.command = STM32_CMD_SINGLE_SHOT_MEASUREMENT;
+							  resp.data = CMD_RESP_OK;
+					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SINGLE_SHOT_MEASUREMENT, CMD_RESP_OK) == HAL_OK)
+							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
+							  {
+								  NextState = MAIN_SINGLE_SHOT;
+							  }
+							  break;
+
+						  case STM32_CMD_SEND_LAST_ADC_BYTES:
+							  if (adc_is_half)
+							  {
+								  // adc_is_half == 1 means the last message sent was spi_msg_1
+								  // So we are now still writing in spi_msg_2.
+								  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+							  } else {
+								  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+							  }
+
+							  break;
+
+						  case CMD_NOP:
+					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
+//							  resp.command = CMD_NOP;
+//							  resp.data = CMD_RESP_OK;
+//							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+							  break;
+
+						  default:
+					//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
+							  resp.command = CMD_NOP;
+							  resp.data = CMD_RESP_NOK;
+							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+
+					  }
+
+				  }
+				  // No event occured, check for SPI messages
+				  else if (spi_ctrl_isIdle())
+				  {
+					  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+				  }
 			  }
 			  break;
 
 		  case MAIN_CONFIG:
-			  Config_Handler();
+
+			  if (  main_exit_config )
+			  {
+				  NextState = MAIN_IDLE;
+				  main_exit_config = 0 ;
+				  break;
+			  } else if (spi_ctrl_msg_received())
+			  {
+				// Forward the message to the config handler
+				Config_Handler((spi_cmd_t*)cmd_buffer);
+				break;
+			  }
+			  // No event occurred, check for SPI messages
+			  else if (spi_ctrl_isIdle())
+			  {
+				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+			  }
 			  break;
+
+		  case MAIN_SINGLE_SHOT:
+		  {
+			  htim3_bak = htim3;
+			  // Set timer to 100Hz
+			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
+
+			  tim3_counter = 0;
+			  adc_is_half = 0;
+			  adc_ready = 0;
+			  gpio_result_write_ptr = 0;
+			  time_result_write_ptr = 0;
+
+			  TIM3->CNT = 0;
+
+			  HAL_TIM_Base_Start_IT(&htim3);
+			  HAL_ADC_Start_DMA(
+					  &hadc1,
+					  (uint32_t*)(spi_msg_1_ptr->adcData),
+					  ADC_BUFFERSIZE_SAMPLES);
+
+			  // Wait until first message is sent
+
+			  // Set ADC to single conversion measure mode
+			  NextState = MAIN_SINGLE_SHOT_AWAIT_RESULT;
+
+			  break;
+		  }
+
+		  case MAIN_SINGLE_SHOT_AWAIT_RESULT:
+			  if (spi_ctrl_isIdle())
+			  {
+				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+			  }
+			  if (tim3_counter > 2)
+			  {
+				 HAL_TIM_Base_Stop_IT(&htim3);
+				 HAL_ADC_Stop_DMA(&hadc1);
+
+				 htim3 = htim3_bak;
+				 HAL_TIM_Base_Init(&htim3);
+				 NextState = MAIN_IDLE;
+			  }
+
+		  break;
+
 	  }
 
-  }
+	  if (NextState != MainState)
+	  {
+		  MainState = NextState;
+	  }
+
+  }// end of while
   /* USER CODE END 3 */
 }
 
@@ -228,11 +587,17 @@ void SystemClock_Config(void)
   */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_HIGH);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -270,7 +635,6 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
-  ADC_AnalogWDGConfTypeDef AnalogWDGConfig = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -280,38 +644,25 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 8;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
-  hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analog WatchDog 1
-  */
-  AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
-  AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_SINGLE_REG;
-  AnalogWDGConfig.Channel = ADC_CHANNEL_0;
-  AnalogWDGConfig.ITMode = DISABLE;
-  AnalogWDGConfig.HighThreshold = 0;
-  AnalogWDGConfig.LowThreshold = 0;
-  if (HAL_ADC_AnalogWDGConfig(&hadc1, &AnalogWDGConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -328,6 +679,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -336,6 +688,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -344,6 +697,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -352,6 +706,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -360,6 +715,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_6;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -368,6 +724,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_6;
   sConfig.Rank = ADC_REGULAR_RANK_7;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -376,6 +733,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_7;
   sConfig.Rank = ADC_REGULAR_RANK_8;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -384,6 +742,72 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x12;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.SubSeconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_FEBRUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x17;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
 
 }
 
@@ -409,7 +833,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_HARD_INPUT;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -447,7 +871,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 100;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = 64000;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -468,6 +892,37 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM14 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM14_Init(void)
+{
+
+  /* USER CODE BEGIN TIM14_Init 0 */
+
+  /* USER CODE END TIM14_Init 0 */
+
+  /* USER CODE BEGIN TIM14_Init 1 */
+
+  /* USER CODE END TIM14_Init 1 */
+  htim14.Instance = TIM14;
+  htim14.Init.Prescaler = 64000;
+  htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim14.Init.Period = 250;
+  htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM14_Init 2 */
+
+  /* USER CODE END TIM14_Init 2 */
 
 }
 
@@ -500,13 +955,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_2, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port, DATA_OVERRUN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
@@ -519,18 +975,24 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : DATA_OVERRUN_Pin */
+  GPIO_InitStruct.Pin = DATA_OVERRUN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(DATA_OVERRUN_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PD2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  /*Configure GPIO pin : AIN_PULLUP_SELECT_CLK_Pin */
+  GPIO_InitStruct.Pin = AIN_PULLUP_SELECT_CLK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_Init(AIN_PULLUP_SELECT_CLK_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : STM_DATA_RDY_Pin */
   GPIO_InitStruct.Pin = STM_DATA_RDY_Pin;
@@ -552,128 +1014,62 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void Config_Handler()
+
+
+void ADC_Reinit()
 {
-	uint8_t retVal;
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 1, 1000);
-	  if( retVal == HAL_ERROR)
+	  if (HAL_ADC_Init(&hadc1) != HAL_OK)
 	  {
-		  /* Transfer error in transmission process */
-		  Error_Handler();
+	    Error_Handler();
 	  }
-	  else if (retVal == HAL_OK)
-	  {
-		  switch(RxBuffer[0])
-		  {
-			  case CMD_SET_SAMPLE_RATE:
-				// receive setting
-				if (Config_Set_Sample_freq(retVal))
-				{
-					Send_OK();
-				} else {
-					Send_NOK();
-				}
+
+}
 
 
-			  break;
 
-			  case CMD_SET_RESOLUTION:
-				  Send_OK();
-				  break;
 
-//			  case CMD_CONFIG_SET_DAC_PWM:
+//uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
+//{
+//	return 1;
+//}
+
+
 //
-//				  break;
-
-			  case CMD_MEASURE_MODE:
-				  if (Send_OK())
-				  {
-					  MainState = MAIN_IDLE;
-				  }
-				  break;
-
-			  case CMD_NOP:
-
-				  break;
-
-			  default:
-				 Send_NOK();
-
-		  }
-	  }
-}
-
-
-void Idle_Handler()
-{
-	uint8_t retVal;
-
-	// Blocking SPI read with 1000 clock cycles timeout.
-	retVal = HAL_SPI_Receive(&hspi1,  RxBuffer, 1, 1000);
-	if( retVal == HAL_ERROR)
-	{
-	  /* Transfer error in transmission process */
-	  Error_Handler();
-	}
-	else if (retVal == HAL_OK)
-	{
-	  switch(RxBuffer[0])
-	  {
-		  //case CMD_ADC_START:
-			//if (Send_OK())
-			//{
-			//	MainState = MAIN_ADC_START;
-			//}
-
-		  case CMD_SETTINGS_MODE:
-			  if (Send_OK())
-			  {
-				MainState = MAIN_CONFIG;
-			  }
-
-		  break;
-
-		  case CMD_NOP:
-			  break;
-
-		  default:
-			Send_NOK();
-
-	  }
-	}
-}
-
-uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
-{
-	return 1;
-}
-
-
-
-uint8_t Send_OK(void)
-{
-	uint8_t t = RESP_OK;
-	HAL_StatusTypeDef errorcode;
-	errorcode = HAL_SPI_Transmit(&hspi1, &t, 1, 1000);
-	if (errorcode == HAL_OK)
-	{
-		return 1;
-	} else {
-		return 0;
-	}
-}
-uint8_t Send_NOK(void)
-{
-	uint8_t t = RESP_NOK;
-	HAL_StatusTypeDef errorcode;
-	errorcode = HAL_SPI_Transmit(&hspi1, &t, 1, 1000);
-	if (errorcode == HAL_OK)
-	{
-		return 1;
-	} else {
-		return 0;
-	}
-}
+//uint8_t Send_OK(void)
+//{
+//
+//	t.t8[0] = RESP_OK;
+//	t.t8[1] = 0x00;
+//	HAL_StatusTypeDef errorcode;
+//
+//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+//
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//	if (errorcode == HAL_OK)
+//	{
+//		return 1;
+//	} else {
+//		return 0;
+//	}
+//}
+//uint8_t Send_NOK(void)
+//{
+//
+//	t.t8[0]= RESP_NOK;
+//	t.t8[1] = 0x00;
+//	HAL_StatusTypeDef errorcode;
+//
+//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
+//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
+////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
+//	if (errorcode == HAL_OK)
+//	{
+//		return 1;
+//	} else {
+//		return 0;
+//	}
+//}
 
 
 /* USER CODE END 4 */

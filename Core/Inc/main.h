@@ -31,32 +31,43 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "esp32_interface.h"
+#include "events.h"
+//#include "msg.h"
 
+#include "config.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+
 enum  {
 	MAIN_IDLE = 0x01,
 	MAIN_CONFIG,
+	MAIN_LOGGING,
+	MAIN_SINGLE_SHOT,
+	MAIN_SINGLE_SHOT_AWAIT_RESULT,
 	MAIN_ERROR
 };
 
-enum  {
-	CMD_NOP = 0x00,
-	CMD_SETTINGS_MODE = 0x01,
-	CMD_MEASURE_MODE,
-	CMD_SET_RESOLUTION,
-	CMD_SET_SAMPLE_RATE
-};
+
+
+typedef struct {
+	uint8_t year;
+	uint8_t month;
+	uint8_t date;
+	uint8_t hours;
+	uint8_t minutes;
+	uint8_t seconds;
+	uint8_t padding1;
+	uint8_t padding2;
+	uint32_t subseconds;
+} s_date_time_t;
 
 
 
-enum   {
-	RESP_OK = 0x01,
-	RESP_NOK
-};
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -73,13 +84,10 @@ enum   {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void Config_Handler();
-void Idle_Handler();
 
-uint8_t Config_Set_Sample_freq(uint8_t sampleFreq);
 
-uint8_t Send_OK(void);
-uint8_t Send_NOK(void);
+
+void ADC_Reinit();
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -95,12 +103,14 @@ uint8_t Send_NOK(void);
 #define DIGITAL_IN_4_GPIO_Port GPIOB
 #define DIGITAL_IN_5_Pin GPIO_PIN_15
 #define DIGITAL_IN_5_GPIO_Port GPIOB
-#define SPI1_STM_CS_Pin GPIO_PIN_15
-#define SPI1_STM_CS_GPIO_Port GPIOA
+#define DATA_OVERRUN_Pin GPIO_PIN_15
+#define DATA_OVERRUN_GPIO_Port GPIOA
 #define AIN_RANGE_SELECT_CLK_Pin GPIO_PIN_0
 #define AIN_RANGE_SELECT_CLK_GPIO_Port GPIOD
 #define AIN_RANGE_SELECT_CLR_Pin GPIO_PIN_1
 #define AIN_RANGE_SELECT_CLR_GPIO_Port GPIOD
+#define AIN_PULLUP_SELECT_CLK_Pin GPIO_PIN_2
+#define AIN_PULLUP_SELECT_CLK_GPIO_Port GPIOD
 #define AIN_PULLUP_SELECT_CLR_Pin GPIO_PIN_3
 #define AIN_PULLUP_SELECT_CLR_GPIO_Port GPIOD
 #define STM_DATA_RDY_Pin GPIO_PIN_6
