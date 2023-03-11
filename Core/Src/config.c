@@ -230,56 +230,56 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	 {
 	 case ADC_SAMPLE_RATE_1Hz:
 		 // Reconfig the timer
-		 htim3.Init.Prescaler = 1000;
-		 htim3.Init.Period = 64000;
+		 htim3.Init.Prescaler = 1000-1;
+		 htim3.Init.Period = 64000-1;
 		 break;
 
 	 case ADC_SAMPLE_RATE_2Hz:
 	 		 // Reconfig the timer
-		htim3.Init.Prescaler = 500;
-	 	htim3.Init.Period = 64000;
+		htim3.Init.Prescaler = 500-1;
+	 	htim3.Init.Period = 64000-1;
 	 	break;
 
 	 case ADC_SAMPLE_RATE_5Hz:
 		 	// Reconfig the timer
-			htim3.Init.Prescaler = 200;
-		 	htim3.Init.Period = 64000;
+			htim3.Init.Prescaler = 200-1;
+		 	htim3.Init.Period = 64000-1;
 		 	break;
 
 	 case ADC_SAMPLE_RATE_10Hz:
-		 htim3.Init.Prescaler = 100;
-		 htim3.Init.Period = 64000;
+		 htim3.Init.Prescaler = 100-1;
+		 htim3.Init.Period = 64000-1;
 		 break;
 
 	 case ADC_SAMPLE_RATE_25Hz:
-		 htim3.Init.Prescaler = 100;
-		 htim3.Init.Period = 25600;
+		 htim3.Init.Prescaler = 100-1;
+		 htim3.Init.Period = 25600-1;
 		 break;
 
 	 case ADC_SAMPLE_RATE_50Hz:
-		 htim3.Init.Prescaler = 100;
+		 htim3.Init.Prescaler = 100-1;
 		 htim3.Init.Period = 12800;
 		 break;
 	 case 	ADC_SAMPLE_RATE_100Hz:
-		htim3.Init.Prescaler = 10;
+		htim3.Init.Prescaler = 10-1;
 		htim3.Init.Period = 64000;
 		 break;
 
 	 case 	ADC_SAMPLE_RATE_250Hz:
-		 htim3.Init.Prescaler = 20;
-		 htim3.Init.Period = 12800;
+		 htim3.Init.Prescaler = 20-1;
+		 htim3.Init.Period = 12800-1;
 
 		 break;
 
 	 case ADC_SAMPLE_RATE_500Hz:
-		 htim3.Init.Prescaler = 10;
+		 htim3.Init.Prescaler = 10-1;
 		 htim3.Init.Period = 12800;
 
 		 break;
 
 	 case ADC_SAMPLE_RATE_1000Hz:
-		 htim3.Init.Prescaler = 1;
-		 htim3.Init.Period = 64000;
+		 htim3.Init.Prescaler = 1-1;
+		 htim3.Init.Period = 64000-1;
 
 	 break;
 
@@ -296,8 +296,8 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //		 break;
 
 	 case ADC_SAMPLE_RATE_2500Hz:
-			 htim3.Init.Prescaler = 2;
-			 htim3.Init.Period = 12800;
+			 htim3.Init.Prescaler = 2-1;
+			 htim3.Init.Period = 12800-1;
 
 			 break;
 
