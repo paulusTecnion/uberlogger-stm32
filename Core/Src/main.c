@@ -226,7 +226,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
 
 
-
 		current_date_time.year = current_date.Year;
 		current_date_time.month = current_date.Month;
 		current_date_time.date = current_date.Date;
@@ -551,6 +550,7 @@ int main(void)
 			  {
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
+			  // limit our acquisition to 3 samples
 			  if (tim3_counter > 2)
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);
