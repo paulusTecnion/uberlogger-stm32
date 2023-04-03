@@ -218,6 +218,7 @@ uint8_t Config_Set_Time(uint32_t epoch)
 
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 {
+	uint8_t use16bit = 0;
 	// Make sure timer3 has stopped
 	HAL_TIM_Base_Stop_IT(&htim3);
 
@@ -226,62 +227,161 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	 htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 	 htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
+	 // Please look at
+	 // https://tecnionnl.sharepoint.com/:x:/s/uberlogger/EeEoN_zLy7BHslnFgKYobd4BH9o46vYH16z9PU2SE_CJCw?e=748AyK
+	 // for the prescaler values when using 16 bit adc
+
+	 // User must set the resolution before setting the sample rate!
+	 if (hadc1.Init.Oversampling.RightBitShift == ADC_RIGHTBITSHIFT_4)
+	 {
+		 use16bit = 1;
+	 }
+
+	 // Reset prescaler for adc clock
+	 CLEAR_BIT(ADC1_COMMON->CCR ,ADC_CCR_PRESC_0);
+	 CLEAR_BIT(ADC1_COMMON->CCR , ADC_CCR_PRESC_1);
+	 CLEAR_BIT(ADC1_COMMON->CCR ,ADC_CCR_PRESC_2);
+	 CLEAR_BIT(ADC1_COMMON->CCR ,ADC_CCR_PRESC_3);
+
 	 switch(sampleFreq)
 	 {
 	 case ADC_SAMPLE_RATE_1Hz:
 		 // Reconfig the timer
+
+		 if (use16bit)
+		 {
+			 // prescale 256
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		 }
+
 		 htim3.Init.Prescaler = 1000-1;
 		 htim3.Init.Period = 64000-1;
+
+
 		 break;
 
 	 case ADC_SAMPLE_RATE_2Hz:
 	 		 // Reconfig the timer
-		htim3.Init.Prescaler = 500-1;
-	 	htim3.Init.Period = 64000-1;
+		 if (use16bit)
+		 {
+			 // prescale 256
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		 }
+
+		 htim3.Init.Prescaler = 500-1;
+		 htim3.Init.Period = 64000-1;
+
+
 	 	break;
 
 	 case ADC_SAMPLE_RATE_5Hz:
-		 	// Reconfig the timer
-			htim3.Init.Prescaler = 200-1;
-		 	htim3.Init.Period = 64000-1;
+		 if (use16bit)
+		 {
+			 // prescale 256
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		 }
+
+		 htim3.Init.Prescaler = 200-1;
+		 htim3.Init.Period = 64000-1;
 		 	break;
 
 	 case ADC_SAMPLE_RATE_10Hz:
+		 if (use16bit)
+		 {
+			 // prescale 256
+			 ADC1_COMMON->CCR |= ADC_CCR_PRESC_0;
+			 ADC1_COMMON->CCR |= ADC_CCR_PRESC_1;
+			 ADC1_COMMON->CCR |= ADC_CCR_PRESC_3;
+		 }
+
 		 htim3.Init.Prescaler = 100-1;
 		 htim3.Init.Period = 64000-1;
+
+
 		 break;
 
 	 case ADC_SAMPLE_RATE_25Hz:
-		 htim3.Init.Prescaler = 100-1;
-		 htim3.Init.Period = 25600-1;
+		if (use16bit)
+		{
+			// prescale 256
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_0;
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_1;
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_3;
+		}
+
+		htim3.Init.Prescaler = 100-1;
+		htim3.Init.Period = 25600-1;
 		 break;
 
 	 case ADC_SAMPLE_RATE_50Hz:
-		 htim3.Init.Prescaler = 100-1;
-		 htim3.Init.Period = 12800;
+		if (use16bit)
+		{
+			// prescale 256
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_0;
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_1;
+			ADC1_COMMON->CCR |= ADC_CCR_PRESC_3;
+		}
+
+		htim3.Init.Prescaler = 100-1;
+		htim3.Init.Period = 12800;
+
+
 		 break;
 	 case 	ADC_SAMPLE_RATE_100Hz:
+		if (use16bit)
+		{
+			// prescale 256
+			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		}
+
 		htim3.Init.Prescaler = 10-1;
 		htim3.Init.Period = 64000;
+
+
 		 break;
 
 	 case 	ADC_SAMPLE_RATE_250Hz:
-		 htim3.Init.Prescaler = 20-1;
-		 htim3.Init.Period = 12800-1;
+		if (use16bit)
+		{
+			// prescale 128
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		}
+
+		htim3.Init.Prescaler = 20-1;
+		htim3.Init.Period = 12800-1;
+
+
 
 		 break;
 
 	 case ADC_SAMPLE_RATE_500Hz:
-		 htim3.Init.Prescaler = 10-1;
-		 htim3.Init.Period = 12800;
+		if (use16bit)
+		{
+			// prescale 64
+			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+		}
+
+		htim3.Init.Prescaler = 10-1;
+		htim3.Init.Period = 12800;
+
 
 		 break;
 
-	 case ADC_SAMPLE_RATE_1000Hz:
-		 htim3.Init.Prescaler = 1-1;
-		 htim3.Init.Period = 64000-1;
-
-	 break;
+//	 case ADC_SAMPLE_RATE_1000Hz:
+//		 htim3.Init.Prescaler = 1-1;
+//		 htim3.Init.Period = 64000-1;
+//
+//	 break;
 
 //	 case ADC_SAMPLE_RATE_2000Hz:
 //		 htim3.Init.Prescaler = 1;
@@ -295,11 +395,11 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //
 //		 break;
 
-	 case ADC_SAMPLE_RATE_2500Hz:
-			 htim3.Init.Prescaler = 2-1;
-			 htim3.Init.Period = 12800-1;
-
-			 break;
+//	 case ADC_SAMPLE_RATE_2500Hz:
+//			 htim3.Init.Prescaler = 2-1;
+//			 htim3.Init.Period = 12800-1;
+//
+//			 break;
 
 
 //	 case ADC_SAMPLE_RATE_5000Hz:
