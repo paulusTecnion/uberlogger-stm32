@@ -136,7 +136,7 @@ log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 extern uint8_t spi_ctrl_state;
-uint8_t overrun = 0, adc_ready = 0;
+uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
 
 
@@ -179,29 +179,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 	if (htim == &htim3 )
 	  {
-		if (adc_ready)
-		{
-			gpio_result_write_ptr = 0;
-			time_result_write_ptr = 0;
-			// Half way we have the pointers start at the beginning
-			if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-			{
-				overrun = 1;
-				return;
-			}
-
-			tim3_counter=0;
-
-			if (adc_is_half)
-			{
-				spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-			} else {
-				spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-			}
-			adc_ready = 0;
-		}
-
-		tim3_counter++;
 
 		 // Check which version of the timer triggered this callback and toggle LED
 		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
@@ -218,27 +195,60 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		// Next line not 100% correct!
 		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
 
+//		if (prev_date_time.subseconds != 9999)
+//		{
+//			diffSub = current_date_time.subseconds - prev_date_time.subseconds;
+//		}
+//		prev_date_time = current_date_time;
 		// Are still in the first ADC half?
-		if (!adc_is_half && (tim3_counter <= DATA_LINES_PER_SPI_TRANSACTION))
+		if (!gpio_is_half)
 		{
 			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
 			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_1_ptr->dataLen = tim3_counter;
+			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
 		} else { // If not, we fill the second part
 			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
 			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_2_ptr->dataLen = tim3_counter;
+			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
 		}
 //
+		tim3_counter++;
 		gpio_result_write_ptr++;
+
 //		time_result_write_ptr = time_result_write_ptr + sizeof(current_date_time);
 //e
 //		// to add: check for overrun
 		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
 		{
-			gpio_result_write_ptr = GPIO_BYTES_PER_SPI_TRANSACTION-1;
+			gpio_is_half = !gpio_is_half;
+			gpio_ready = 1;
 		}
+
+		gpio_result_write_ptr = gpio_result_write_ptr % GPIO_BYTES_PER_SPI_TRANSACTION;
+		//		time_result_write_ptr = time_result_write_ptr % TIME_BYTES_PER_SPI_TRANSACTION;
+				if (adc_ready && gpio_ready)
+				{
+		//			gpio_result_write_ptr = 0;
+		//			time_result_write_ptr = 0;
+					// Half way we have the pointers start at the beginning
+					if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+					{
+						overrun = 1;
+						return;
+					}
+
+					tim3_counter=0;
+
+					if (adc_is_half)
+					{
+						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+					} else {
+						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+					}
+					adc_ready = 0;
+					gpio_ready = 0;
+				}
 //
 //		if (time_result_write_ptr <= TIME_BYTES_PER_SPI_TRANSACTION)
 //		{
@@ -336,6 +346,7 @@ int main(void)
 //  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
 
   HAL_ADCEx_Calibration_Start(&hadc1);
+//  prev_date_time.subseconds = 9999;
   // Backup current adc settings
   hadc1_bak = hadc1;
 
@@ -344,7 +355,10 @@ int main(void)
   spi_msg_2_ptr->stopByte[0]= 0xFB;
   spi_msg_2_ptr->stopByte[1]= 0xFA;
 
+
   HAL_TIM_Base_Start(&htim14);
+
+
   // Turn off the interrupt flag for timer 14.
   TIM14->DIER &= ~TIM_DIER_UIE;
 
@@ -392,6 +406,8 @@ int main(void)
 				  adc_ready = 0;
 				  gpio_result_write_ptr = 0;
 				  time_result_write_ptr = 0;
+				  gpio_is_half = 0;
+				  gpio_ready = 0;
 
 				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
@@ -401,6 +417,7 @@ int main(void)
 				  // Reinit ADC
 //				  MX_ADC1_Init();
 				  ADC_Reinit();
+				  HAL_ADCEx_Calibration_Start(&hadc1);
 
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
@@ -896,7 +913,7 @@ static void MX_TIM14_Init(void)
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 64000;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 250;
+  htim14.Init.Period = 333;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)

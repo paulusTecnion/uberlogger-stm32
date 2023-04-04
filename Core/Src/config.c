@@ -363,19 +363,19 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 		 break;
 
-	 case ADC_SAMPLE_RATE_500Hz:
-		if (use16bit)
-		{
-			// prescale 64
-			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
-			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
-		}
-
-		htim3.Init.Prescaler = 10-1;
-		htim3.Init.Period = 12800;
-
-
-		 break;
+//	 case ADC_SAMPLE_RATE_500Hz:
+//		if (use16bit)
+//		{
+//			// prescale 64
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+//		}
+//
+//		htim3.Init.Prescaler = 10-1;
+//		htim3.Init.Period = 12800;
+//
+//
+//		 break;
 
 //	 case ADC_SAMPLE_RATE_1000Hz:
 //		 htim3.Init.Prescaler = 1-1;
