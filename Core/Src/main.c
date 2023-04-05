@@ -227,28 +227,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 		gpio_result_write_ptr = gpio_result_write_ptr % GPIO_BYTES_PER_SPI_TRANSACTION;
 		//		time_result_write_ptr = time_result_write_ptr % TIME_BYTES_PER_SPI_TRANSACTION;
-				if (adc_ready && gpio_ready)
-				{
-		//			gpio_result_write_ptr = 0;
-		//			time_result_write_ptr = 0;
-					// Half way we have the pointers start at the beginning
-					if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-					{
-						overrun = 1;
-						return;
-					}
 
-					tim3_counter=0;
-
-					if (adc_is_half)
-					{
-						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-					}
-					adc_ready = 0;
-					gpio_ready = 0;
-				}
 //
 //		if (time_result_write_ptr <= TIME_BYTES_PER_SPI_TRANSACTION)
 //		{
@@ -379,6 +358,31 @@ int main(void)
 	  {
 	  	  case MAIN_LOGGING:
 			  // Doing nothing
+
+	  		if (adc_ready && gpio_ready)
+			{
+	//			gpio_result_write_ptr = 0;
+	//			time_result_write_ptr = 0;
+				// Half way we have the pointers start at the beginning
+				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+				{
+					overrun = 1;
+//					return;
+				}
+
+				tim3_counter=0;
+
+				if (adc_is_half)
+				{
+					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
+					spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+				} else {
+					spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+				}
+				adc_ready = 0;
+				gpio_ready = 0;
+			}
+
 			  if (!logging_en || overrun)
 			  {
 				  if (overrun)
