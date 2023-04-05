@@ -330,6 +330,9 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 		htim3.Init.Prescaler = 100-1;
 		htim3.Init.Period = 12800;
+//		htim3.Init.Prescaler = 639;
+//		htim3.Init.Period = 1000;
+
 
 
 		 break;
@@ -337,13 +340,15 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		if (use16bit)
 		{
 			// prescale 256
-			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
-			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
-			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
 		}
 
-		htim3.Init.Prescaler = 10-1;
-		htim3.Init.Period = 64000;
+//		htim3.Init.Prescaler = 10-1;
+//		htim3.Init.Period = 64000;
+		htim3.Init.Prescaler = 639;
+		htim3.Init.Period = 1000;
 
 
 		 break;
@@ -352,12 +357,12 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		if (use16bit)
 		{
 			// prescale 128
-			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
-			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+//			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+//			 ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
 		}
 
-		htim3.Init.Prescaler = 20-1;
-		htim3.Init.Period = 12800-1;
+		htim3.Init.Prescaler = 255;
+		htim3.Init.Period = 1000;
 
 
 
@@ -624,7 +629,7 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 		hadc1.Init.OversamplingMode = ENABLE;
 		  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
 		  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
-		  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+//		  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
 		break;
 
 	//case ADC_12_BITS:

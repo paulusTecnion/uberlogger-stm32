@@ -138,6 +138,7 @@ uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 extern uint8_t spi_ctrl_state;
 uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
+uint8_t busy = 0;
 
 
 
@@ -179,7 +180,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 	if (htim == &htim3 )
 	  {
-
+		if (busy)
+		{
+			Error_Handler();
+		}
+		busy = 1;
 		 // Check which version of the timer triggered this callback and toggle LED
 		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
 		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
@@ -233,7 +238,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 //		{
 //			time_result_write_ptr = TIME_BYTES_PER_SPI_TRANSACTION-1;
 //		}
-
+		busy = 0;
 	  }
 }
 
@@ -295,9 +300,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
+//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -508,7 +513,8 @@ int main(void)
 				  NextState = MAIN_IDLE;
 				  main_exit_config = 0 ;
 				  break;
-			  } else if (spi_ctrl_msg_received())
+			  }
+			  else if (spi_ctrl_msg_received())
 			  {
 				// Forward the message to the config handler
 				Config_Handler((spi_cmd_t*)cmd_buffer);
@@ -555,8 +561,9 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (tim3_counter > 2)
+			  if (gpio_result_write_ptr > 3)
 			  {
+				//  uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 				 HAL_TIM_Base_Stop_IT(&htim3);
 				 HAL_ADC_Stop_DMA(&hadc1);
 
