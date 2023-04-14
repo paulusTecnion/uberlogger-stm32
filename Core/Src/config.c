@@ -252,10 +252,9 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //	 }
 
 	 // set the sample frequency for the iir filter
-	 if (is16bitmode)
-	 {
-		 iir_set_samplefreq(sampleFreq);
-	 }
+
+	iir_set_samplefreq(sampleFreq);
+
 
 
 	 switch(sampleFreq)
