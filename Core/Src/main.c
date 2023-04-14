@@ -230,9 +230,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		{
 			if (!adc_16b_is_half)
 			{
-				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8);
+				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			} else {
-				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8);
+				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
 		}
 
@@ -364,7 +364,7 @@ int main(void)
 //  TIM1->DIER |= TIM_DIER_UIE;
 //  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
 
-//  HAL_ADCEx_Calibration_Start(&hadc1);
+
 //  prev_date_time.subseconds = 9999;
   // Backup current adc settings
   hadc1_bak = hadc1;
@@ -659,6 +659,7 @@ int main(void)
 			  TIM3->CNT = 0;
 
 			  HAL_TIM_Base_Start_IT(&htim3);
+			    HAL_ADCEx_Calibration_Start(&hadc1);
 			  if (is16bitmode)
 			  {
 				  HAL_ADC_Start_DMA(
