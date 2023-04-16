@@ -193,7 +193,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			Error_Handler();
 		}
 		busy = 1;
-		adc_ready = 1;
+
 
 		 // Check which version of the timer triggered this callback and toggle LED
 		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
@@ -417,17 +417,10 @@ int main(void)
 				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
 				{
 					overrun = 1;
-//					return;
 				}
 
 				tim3_counter=0;
-//				uint16_t x = 0;
-//				  for (int i=0; i<ADC_VALUES_PER_SPI_TRANSACTION; i = i + 8)
-//				  {
-//					  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)x;
-//					  ((uint16_t*)spi_msg_2_ptr->adcData)[i] = (uint16_t)x+ADC_VALUES_PER_SPI_TRANSACTION;
-//					  x++;
-//				  }
+
 				if (is16bitmode)
 				{
 
@@ -690,7 +683,7 @@ int main(void)
 			  // limit our acquisition to 3 samples
 			  if (gpio_result_write_ptr > 3)
 			  {
-				  uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
+//				  uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
 				 HAL_TIM_Base_Stop_IT(&htim3);
 //				 if (is16bitmode)
