@@ -645,6 +645,7 @@ int main(void)
 			  tim3_counter = 0;
 			  adc_is_half = 0;
 			  adc_16b_is_half = 0;
+			  gpio_is_half = 0;
 			  adc_ready = 0;
 			  gpio_result_write_ptr = 0;
 			  time_result_write_ptr = 0;
