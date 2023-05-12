@@ -12,4 +12,4 @@
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c:303:6:HAL_SYSTICK_IRQHandler	8	static
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c:331:6:HAL_MPU_Enable	0	static,ignoring_inline_asm
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c:346:6:HAL_MPU_Disable	0	static,ignoring_inline_asm
-../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c:362:6:HAL_MPU_ConfigRegion	8	static
+../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_cortex.c:362:6:HAL_MPU_ConfigRegion	0	static
