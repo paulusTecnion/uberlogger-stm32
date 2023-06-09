@@ -605,9 +605,9 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 		hadc1.Init.OversamplingMode = ENABLE;
 		hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
 		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
-		hadc1.Init.ContinuousConvMode = ENABLE;
-		hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+		hadc1.Init.ContinuousConvMode = DISABLE;
+		hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
 
 		break;
 
@@ -619,7 +619,7 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
 		hadc1.Init.ContinuousConvMode = DISABLE;
 		hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
 		break;
 
 
