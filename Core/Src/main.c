@@ -78,6 +78,7 @@ DMA_HandleTypeDef hdma_spi1_rx;
 
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim14;
+TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 TIM_HandleTypeDef htim3_bak;
@@ -159,6 +160,7 @@ static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
+static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -177,11 +179,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim == &htim14)
 	{
 		// Disable interrupt
-		TIM14->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+//		TIM14->DIER &= ~TIM_DIER_UIE;
+		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+
 		TIM14->CNT = 0;
 		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
+		SET_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
+	}
+
+	if (htim == &htim16)
+	{
+//		TIM16->DIER &= ~TIM_DIER_UIE;
+		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+		//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+		TIM16->CNT = 0;
+		// Indicate timeout
+		SET_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
 	}
 
 	if (htim == &htim3 )
@@ -355,6 +368,7 @@ int main(void)
   MX_TIM3_Init();
   MX_RTC_Init();
   MX_TIM14_Init();
+  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
@@ -376,10 +390,12 @@ int main(void)
 
 
   HAL_TIM_Base_Start(&htim14);
+  HAL_TIM_Base_Start(&htim16);
 
 
   // Turn off the interrupt flag for timer 14.
-  TIM14->DIER &= ~TIM_DIER_UIE;
+  CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+  CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
   memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
   memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));

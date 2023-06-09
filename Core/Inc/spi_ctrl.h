@@ -15,10 +15,11 @@ typedef enum spi_ctrl_state_e {
 	SPI_CTRL_IDLE = 0x01,        //1
 	SPI_CTRL_SENDING = 0x02,	//2
 	SPI_CTRL_RECEIVING = 0x04,	//3
-	SPI_CTRL_TIMEOUT = 0x08,	//4
+	SPI_CTRL_TX_TIMEOUT = 0x08,	//4
 	SPI_CTRL_ERROR = 0x10,		// 5
 	SPI_CTRL_MSG_RECEIVED = 0x20, //6
-	SPI_CTRL_MSG_SENT = 0x40	//7
+	SPI_CTRL_MSG_SENT = 0x40,	//7
+	SPI_CTRL_RX_TIMEOUT = 0x80 // 8
 } spi_ctrl_state_t;
 
 
