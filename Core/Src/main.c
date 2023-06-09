@@ -129,9 +129,11 @@ typedef struct {
 
 
 
+
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 uint8_t rxbuffer[20];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+uint16_t * adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
 
@@ -373,6 +375,7 @@ int main(void)
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
+  adc_data_u16 = (uint16_t*)spi_msg_1_ptr->adcData;
 
   // Enable TIM1 interrupt
 //  TIM1->DIER |= TIM_DIER_UIE;
@@ -1151,9 +1154,6 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port, DATA_OVERRUN_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DIGITAL_IN_0_Pin DIGITAL_IN_1_Pin DIGITAL_IN_2_Pin DIGITAL_IN_3_Pin
@@ -1163,13 +1163,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : DATA_OVERRUN_Pin */
-  GPIO_InitStruct.Pin = DATA_OVERRUN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(DATA_OVERRUN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;
