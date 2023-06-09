@@ -465,11 +465,11 @@ int main(void)
 
 			  if (!logging_en || overrun)
 			  {
-				  if (overrun)
-				  {
-					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
-				  }
-				  overrun =0;
+//				  if (overrun)
+//				  {
+//					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
+//				  }
+//				  overrun =0;
 				  // reset the this variable to 0, since we expect that a "
 
 				  HAL_TIM_Base_Stop_IT(&htim3);
@@ -502,7 +502,7 @@ int main(void)
 				  gpio_is_half = 0;
 				  gpio_ready = 0;
 
-				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
+//				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
 //				  hadc1 = hadc1_bak;
 				  // Disable ADC
