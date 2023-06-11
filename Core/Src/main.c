@@ -402,6 +402,8 @@ int main(void)
 
   memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
   memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
+
+  HAL_ADCEx_Calibration_Start(&hadc1);
 //  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
 //  {
 //	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
@@ -519,7 +521,7 @@ int main(void)
 //
 
 
-				  HAL_ADCEx_Calibration_Start(&hadc1);
+//				  HAL_ADCEx_Calibration_Start(&hadc1);
 
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
@@ -531,13 +533,13 @@ int main(void)
 
 					  // Start adc
 					  //ADC1->CR |= ADC_CR_ADSTART;
-					  if(HAL_ADC_Start_DMA(
-							 &hadc1,
-							(uint32_t*)(adc16bBuffer),
-							16) == HAL_OK)
-					  {
+//					  if(HAL_ADC_Start_DMA(
+//							 &hadc1,
+//							(uint32_t*)(adc16bBuffer),
+//							16) == HAL_OK)
+//					  {
 						  NextState = MAIN_LOGGING;
-					  }
+//					  }
 
 
 				  } else {
@@ -569,7 +571,10 @@ int main(void)
 					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
 							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 							  {
-								  NextState = MAIN_CONFIG;
+
+								HAL_ADC_Stop_DMA(&hadc1);
+
+								NextState = MAIN_CONFIG;
 							  }
 
 						  break;
@@ -639,6 +644,16 @@ int main(void)
 			  if (  main_exit_config )
 			  {
 				  NextState = MAIN_IDLE;
+				  // Start the ADC if we are in 16 bit mode.
+				  if (is16bitmode)
+				  {
+					  HAL_ADC_Start_DMA(
+					  &hadc1,
+					  (uint32_t*)(adc16bBuffer),
+					  16);
+
+				  }
+
 				  main_exit_config = 0 ;
 				  break;
 			  }
@@ -672,14 +687,11 @@ int main(void)
 			  TIM3->CNT = 0;
 
 			  HAL_TIM_Base_Start_IT(&htim3);
-			    HAL_ADCEx_Calibration_Start(&hadc1);
-			  if (is16bitmode)
+//			  HAL_ADCEx_Calibration_Start(&hadc1);
+
+			  // In 16 bit mode we have already started the ADC. Only do this for 12 bit.
+			  if (!is16bitmode)
 			  {
-				  HAL_ADC_Start_DMA(
-				  					  &hadc1,
-				  					  (uint32_t*)(adc16bBuffer),
-				  					  16);
-			  } else {
 				  HAL_ADC_Start_DMA(
 					  &hadc1,
 					  (uint32_t*)(spi_msg_1_ptr->adcData),
@@ -710,7 +722,10 @@ int main(void)
 //				 {
 //					 HAL_ADC_Stop(&hadc1);
 //				 } else {
+				 if (!is16bitmode)
+				 {
 					 HAL_ADC_Stop_DMA(&hadc1);
+				 }
 //				 }
 
 
@@ -813,7 +828,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.NbrOfConversion = 8;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_19CYCLES_5;
@@ -1069,9 +1084,9 @@ static void MX_TIM14_Init(void)
 
   /* USER CODE END TIM14_Init 1 */
   htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 64000;
+  htim14.Init.Prescaler = 333;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 333;
+  htim14.Init.Period = 64000;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
@@ -1100,9 +1115,9 @@ static void MX_TIM16_Init(void)
 
   /* USER CODE END TIM16_Init 1 */
   htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 64000;
+  htim16.Init.Prescaler = 333;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim16.Init.Period = 333;
+  htim16.Init.Period = 64000;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim16.Init.RepetitionCounter = 0;
   htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
