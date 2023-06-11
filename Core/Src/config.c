@@ -239,8 +239,12 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	 if (is16bitmode)
 	 {
 		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV16;
+		  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
 	 } else {
 		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+		  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
 	 }
 
 
