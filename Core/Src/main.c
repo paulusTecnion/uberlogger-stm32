@@ -26,6 +26,7 @@
 #include "string.h"
 #include <time.h>
 #include "spi_ctrl.h"
+#include "iirfilter.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,6 +78,7 @@ DMA_HandleTypeDef hdma_spi1_rx;
 
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim14;
+TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 TIM_HandleTypeDef htim3_bak;
@@ -94,7 +96,7 @@ volatile uint16_t data_buffer_write_ptr = 0;
 volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
 
-static uint8_t adc_is_half = 0;
+static uint8_t adc_is_half = 0, adc_16b_is_half=0;
 
 static RTC_TimeTypeDef current_time;
 static RTC_DateTypeDef current_date;
@@ -125,36 +127,27 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
-typedef struct {
-    uint8_t startByte[START_STOP_NUM_BYTES]; // 2
-    uint16_t dataLen;
-    uint8_t padding3;
-    uint8_t padding4;
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
-} spi_msg_1_raw_t;
 
-typedef struct {
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    uint8_t padding1;
-    uint8_t padding2;
-    uint16_t dataLen;
-    uint8_t stopByte[START_STOP_NUM_BYTES];
-} spi_msg_2_raw_t;
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 uint8_t rxbuffer[20];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+uint16_t * adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
+
 
 log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 extern uint8_t spi_ctrl_state;
-uint8_t overrun = 0, adc_ready = 0;
+uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
+uint8_t busy = 0;
+uint16_t adc16bBuffer[16];
+uint16_t iirFilter[8];
+uint8_t is16bitmode = 0;
+uint16_t adcCounter = 0;
 
 
 
@@ -169,6 +162,7 @@ static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
+static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -187,44 +181,39 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim == &htim14)
 	{
 		// Disable interrupt
-		TIM14->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+//		TIM14->DIER &= ~TIM_DIER_UIE;
+		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+
 		TIM14->CNT = 0;
 		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
+		SET_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
+	}
+
+	if (htim == &htim16)
+	{
+//		TIM16->DIER &= ~TIM_DIER_UIE;
+		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+		//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+		TIM16->CNT = 0;
+		// Indicate timeout
+		SET_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
 	}
 
 	if (htim == &htim3 )
 	  {
-		if (adc_ready)
+
+
+		if (busy)
 		{
-			gpio_result_write_ptr = 0;
-			time_result_write_ptr = 0;
-			// Half way we have the pointers start at the beginning
-			if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-			{
-				overrun = 1;
-				return;
-			}
-
-			tim3_counter=0;
-
-			if (adc_is_half)
-			{
-				spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-			} else {
-				spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-			}
-			adc_ready = 0;
+			Error_Handler();
 		}
+		busy = 1;
 
-		tim3_counter++;
 
 		 // Check which version of the timer triggered this callback and toggle LED
 		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
 		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
 		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
-
 
 
 		current_date_time.year = current_date.Year;
@@ -237,48 +226,85 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
 
 		// Are still in the first ADC half?
-		if (!adc_is_half && (tim3_counter <= DATA_LINES_PER_SPI_TRANSACTION))
+		if (!gpio_is_half)
 		{
 			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
 			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
 			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_1_ptr->dataLen = tim3_counter;
+			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
 		} else { // If not, we fill the second part
 			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
 			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_2_ptr->dataLen = tim3_counter;
+			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
 		}
 //
+
+
+		// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
+		if (is16bitmode)
+		{
+			if (!adc_16b_is_half)
+			{
+				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+			} else {
+				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+			}
+		}
+
+
+		tim3_counter++;
 		gpio_result_write_ptr++;
-//		time_result_write_ptr = time_result_write_ptr + sizeof(current_date_time);
-//e
-//		// to add: check for overrun
+
+
 		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
 		{
-			gpio_result_write_ptr = GPIO_BYTES_PER_SPI_TRANSACTION-1;
+			gpio_is_half = !gpio_is_half;
+			gpio_ready = 1;
+
+			// when in 16 bit mode, manually set adc_ready flag
+			if (is16bitmode)
+			{
+				adc_16b_is_half = ~adc_16b_is_half;
+				adc_ready = 1;
+			}
 		}
-//
-//		if (time_result_write_ptr <= TIME_BYTES_PER_SPI_TRANSACTION)
-//		{
-//			time_result_write_ptr = TIME_BYTES_PER_SPI_TRANSACTION-1;
-//		}
+
+		gpio_result_write_ptr = gpio_result_write_ptr % GPIO_BYTES_PER_SPI_TRANSACTION;
+		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
 }
 
 
 
-
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 		adc_is_half = 1;
-		adc_ready = 1;
+		if (!is16bitmode)
+		{
+			adc_ready = 1;
+		} else {
+			for (int i = 0; i<8; i++)
+			{
+				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
+			}
+		}
+
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 		adc_is_half = 0;
-		adc_ready = 1;
+		if (!is16bitmode)
+		{
+			adc_ready = 1;
+		} else {
+			for (int i = 0; i<8; i++)
+			{
+				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
+			}
+		}
+
 }
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
@@ -324,9 +350,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
+//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -344,16 +370,19 @@ int main(void)
   MX_TIM3_Init();
   MX_RTC_Init();
   MX_TIM14_Init();
+  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
+  adc_data_u16 = (uint16_t*)spi_msg_1_ptr->adcData;
 
   // Enable TIM1 interrupt
 //  TIM1->DIER |= TIM_DIER_UIE;
 //  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
 
-  HAL_ADCEx_Calibration_Start(&hadc1);
+
+//  prev_date_time.subseconds = 9999;
   // Backup current adc settings
   hadc1_bak = hadc1;
 
@@ -362,10 +391,24 @@ int main(void)
   spi_msg_2_ptr->stopByte[0]= 0xFB;
   spi_msg_2_ptr->stopByte[1]= 0xFA;
 
-  HAL_TIM_Base_Start(&htim14);
-  // Turn off the interrupt flag for timer 14.
-  TIM14->DIER &= ~TIM_DIER_UIE;
 
+  HAL_TIM_Base_Start(&htim14);
+  HAL_TIM_Base_Start(&htim16);
+
+
+  // Turn off the interrupt flag for timer 14.
+  CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+  CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+
+  memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
+  memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
+
+  HAL_ADCEx_Calibration_Start(&hadc1);
+//  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
+//  {
+//	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
+//	  ((uint16_t*)spi_msg_2_ptr->adcData)[i] = (uint16_t)i+(sizeof(spi_msg_1_ptr->adcData)/2);
+//  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -379,21 +422,71 @@ int main(void)
 //	  Config_Handler();
 	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
 
+	  busy = 0; // reset interrupt timeout
+
+
+
 	  switch(MainState)
 	  {
+
 	  	  case MAIN_LOGGING:
-			  // Doing nothing
+	  		if (adc_ready && gpio_ready)
+			{
+	//			gpio_result_write_ptr = 0;
+	//			time_result_write_ptr = 0;
+				// Half way we have the pointers start at the beginning
+				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+				{
+					overrun = 1;
+				}
+
+				tim3_counter=0;
+
+				if (is16bitmode)
+				{
+
+					if (adc_16b_is_half)
+					{
+	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
+						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+					} else {
+						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+					}
+
+				} else {
+
+					if (adc_is_half)
+					{
+	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
+						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+					} else {
+						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+					}
+				}
+
+				adc_ready = 0;
+				gpio_ready = 0;
+			}
+
 			  if (!logging_en || overrun)
 			  {
-				  if (overrun)
-				  {
-					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
-				  }
-				  overrun =0;
+//				  if (overrun)
+//				  {
+//					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
+//				  }
+//				  overrun =0;
 				  // reset the this variable to 0, since we expect that a "
 
 				  HAL_TIM_Base_Stop_IT(&htim3);
-				  HAL_ADC_Stop_DMA(&hadc1);
+//				  if (is16bitmode)
+//				  {
+//					  ADC1->CR |= ADC_CR_ADSTP;
+//				  } else {
+				  if (!is16bitmode)
+				  {
+					 HAL_ADC_Stop_DMA(&hadc1);
+				  }
+
 
 				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
 				  HAL_Delay(50);
@@ -405,31 +498,69 @@ int main(void)
 		  case MAIN_IDLE:
 			  if (logging_en && spi_ctrl_isIdle())
 			  {
+
+				  if (!is16bitmode)
+				  {
+					  HAL_ADC_Stop_DMA(&hadc1);
+				  }
+
 				  tim3_counter = 0;
 				  adc_is_half = 0;
+				  adc_16b_is_half = 0;
 				  adc_ready = 0;
 				  gpio_result_write_ptr = 0;
 				  time_result_write_ptr = 0;
+				  gpio_is_half = 0;
+				  gpio_ready = 0;
 
-				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
+//				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
 				  // Make sure we have the original ADC config put in place
 //				  hadc1 = hadc1_bak;
 				  // Disable ADC
-				  HAL_ADC_DeInit(&hadc1);
+//				  HAL_ADC_DeInit(&hadc1);
 				  // Reinit ADC
-				  MX_ADC1_Init();
+//				  MX_ADC1_Init();
+
+
 //				  ADC_Reinit();
+				  
+//
+
+
+//				  HAL_ADCEx_Calibration_Start(&hadc1);
 
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
 
-				  HAL_ADC_Start_DMA(
-						  &hadc1,
-						  (uint32_t*)(spi_msg_1_ptr->adcData),
-						  ADC_BUFFERSIZE_SAMPLES);
+				  if (is16bitmode)
+				  {
+					  // reset iir
+					  iir_reset();
+
+					  // Start adc
+					  //ADC1->CR |= ADC_CR_ADSTART;
+//					  if(HAL_ADC_Start_DMA(
+//							 &hadc1,
+//							(uint32_t*)(adc16bBuffer),
+//							16) == HAL_OK)
+//					  {
+						  NextState = MAIN_LOGGING;
+//					  }
+
+
+				  } else {
+					  if (HAL_ADC_Start_DMA(
+							 &hadc1,
+					  		(uint32_t*)(spi_msg_1_ptr->adcData),
+					  		ADC_BUFFERSIZE_SAMPLES) == HAL_OK)
+					  {
+						  NextState = MAIN_LOGGING;
+					  }
+				  }
+
 				  HAL_TIM_Base_Start_IT(&htim3);
 
-				  NextState = MAIN_LOGGING;
+
 			  } else  {
 				  // Check for events
 
@@ -446,7 +577,10 @@ int main(void)
 					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
 							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 							  {
-								  NextState = MAIN_CONFIG;
+
+								HAL_ADC_Stop_DMA(&hadc1);
+
+								NextState = MAIN_CONFIG;
 							  }
 
 						  break;
@@ -463,14 +597,27 @@ int main(void)
 							  break;
 
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
-							  if (adc_is_half)
+							  if (is16bitmode)
 							  {
-								  // adc_is_half == 1 means the last message sent was spi_msg_1
-								  // So we are now still writing in spi_msg_2.
-								  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+								  if (adc_16b_is_half)
+								  {
+									  // adc_is_half == 1 means the last message sent was spi_msg_1
+									  // So we are now still writing in spi_msg_2.
+									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+								  } else {
+									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+								  }
 							  } else {
-								  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+								  if (adc_is_half)
+								  {
+									  // adc_is_half == 1 means the last message sent was spi_msg_1
+									  // So we are now still writing in spi_msg_2.
+									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+								  } else {
+									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+								  }
 							  }
+
 
 							  break;
 
@@ -503,9 +650,20 @@ int main(void)
 			  if (  main_exit_config )
 			  {
 				  NextState = MAIN_IDLE;
+				  // Start the ADC if we are in 16 bit mode.
+				  if (is16bitmode)
+				  {
+					  HAL_ADC_Start_DMA(
+					  &hadc1,
+					  (uint32_t*)(adc16bBuffer),
+					  16);
+
+				  }
+
 				  main_exit_config = 0 ;
 				  break;
-			  } else if (spi_ctrl_msg_received())
+			  }
+			  else if (spi_ctrl_msg_received())
 			  {
 				// Forward the message to the config handler
 				Config_Handler((spi_cmd_t*)cmd_buffer);
@@ -522,10 +680,12 @@ int main(void)
 		  {
 			  htim3_bak = htim3;
 			  // Set timer to 100Hz
-			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
+//			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
 
 			  tim3_counter = 0;
 			  adc_is_half = 0;
+			  adc_16b_is_half = 0;
+			  gpio_is_half = 0;
 			  adc_ready = 0;
 			  gpio_result_write_ptr = 0;
 			  time_result_write_ptr = 0;
@@ -533,10 +693,17 @@ int main(void)
 			  TIM3->CNT = 0;
 
 			  HAL_TIM_Base_Start_IT(&htim3);
-			  HAL_ADC_Start_DMA(
+//			  HAL_ADCEx_Calibration_Start(&hadc1);
+
+			  // In 16 bit mode we have already started the ADC. Only do this for 12 bit.
+			  if (!is16bitmode)
+			  {
+				  HAL_ADC_Start_DMA(
 					  &hadc1,
 					  (uint32_t*)(spi_msg_1_ptr->adcData),
 					  ADC_BUFFERSIZE_SAMPLES);
+			  }
+
 
 			  // Wait until first message is sent
 
@@ -551,10 +718,22 @@ int main(void)
 			  {
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
-			  if (tim3_counter > 2)
+			  // limit our acquisition to 3 samples
+			  if (gpio_result_write_ptr > 2)
 			  {
+				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
+
 				 HAL_TIM_Base_Stop_IT(&htim3);
-				 HAL_ADC_Stop_DMA(&hadc1);
+//				 if (is16bitmode)
+//				 {
+//					 HAL_ADC_Stop(&hadc1);
+//				 } else {
+				 if (!is16bitmode)
+				 {
+					 HAL_ADC_Stop_DMA(&hadc1);
+				 }
+//				 }
+
 
 				 htim3 = htim3_bak;
 				 HAL_TIM_Base_Init(&htim3);
@@ -644,7 +823,7 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
@@ -658,7 +837,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_19CYCLES_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
@@ -768,8 +947,8 @@ static void MX_RTC_Init(void)
   */
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-  hrtc.Init.AsynchPrediv = 127;
-  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.AsynchPrediv = 15;
+  hrtc.Init.SynchPrediv = 2047;
   hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
   hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
   hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
@@ -911,9 +1090,9 @@ static void MX_TIM14_Init(void)
 
   /* USER CODE END TIM14_Init 1 */
   htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 64000;
+  htim14.Init.Prescaler = 333;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 250;
+  htim14.Init.Period = 64000;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
@@ -923,6 +1102,38 @@ static void MX_TIM14_Init(void)
   /* USER CODE BEGIN TIM14_Init 2 */
 
   /* USER CODE END TIM14_Init 2 */
+
+}
+
+/**
+  * @brief TIM16 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM16_Init(void)
+{
+
+  /* USER CODE BEGIN TIM16_Init 0 */
+
+  /* USER CODE END TIM16_Init 0 */
+
+  /* USER CODE BEGIN TIM16_Init 1 */
+
+  /* USER CODE END TIM16_Init 1 */
+  htim16.Instance = TIM16;
+  htim16.Init.Prescaler = 333;
+  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim16.Init.Period = 64000;
+  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim16.Init.RepetitionCounter = 0;
+  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM16_Init 2 */
+
+  /* USER CODE END TIM16_Init 2 */
 
 }
 
@@ -953,6 +1164,8 @@ static void MX_DMA_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -960,9 +1173,6 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port, DATA_OVERRUN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
@@ -974,13 +1184,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : DATA_OVERRUN_Pin */
-  GPIO_InitStruct.Pin = DATA_OVERRUN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(DATA_OVERRUN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;
@@ -1011,6 +1214,8 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */

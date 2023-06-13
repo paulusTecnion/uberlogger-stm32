@@ -22,7 +22,8 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-	TIM14->CNT = 0;
+	CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+	TIM16->CNT = 0;
 	// Clear timeout interrupt
 //	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
@@ -41,10 +42,10 @@ HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length)
 		{
 			SET_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
 			// clear interrupt flag
-			CLEAR_BIT(TIM14->SR,TIM_SR_UIF);
-			TIM14->CNT = 0;
+			CLEAR_BIT(TIM16->SR,TIM_SR_UIF);
+			TIM16->CNT = 0;
 			// Enable interrupt
-			SET_BIT(TIM14->DIER,TIM_DIER_UIE);
+			SET_BIT(TIM16->DIER,TIM_DIER_UIE);
 			// reset timer
 //			TIM14->SR &= ~TIM_SR_UIF;
 
@@ -145,19 +146,20 @@ void spi_ctrl_loop()
 //				_next_spi_state = SPI_CTRL_IDLE;
 //			}
 //			else
-			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT))
+			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT))
 			{
 			// stop timeout timer
 //				HAL_TIM_Base_Stop_IT(&htim14);
 				// clear timeout counter
 				TIM14->CNT = 0;
-
+				// Disable interrupt
+				CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 				HAL_SPI_DMAStop(&hspi1);
 				// Not necessary for receiving, but no harm in making data_rdy low
 				HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
 
 				// this is assuming we can only do send or receive simultaneously!
-				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
+				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
 				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_SENDING);
 				_next_spi_state = SPI_CTRL_IDLE;
 
@@ -169,18 +171,21 @@ void spi_ctrl_loop()
 		case SPI_CTRL_RECEIVING:
 			// Intentionally, we don't check for received messages here, but
 			// in spi_ctrl_msg_received, since we want to deal with that asap.
-			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT))
+			if (READ_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT))
 			{
 				// stop timeout timer
 //					HAL_TIM_Base_Stop_IT(&htim14);
-					// clear timeout counter
-					TIM14->CNT = 0;
-					HAL_SPI_DMAStop(&hspi1);
+				// clear timeout counter
+				TIM16->CNT = 0;
+				// Disable interrupt
+				CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
-					// this is assuming we can only do send or receive simultaneously!
-					CLEAR_BIT(spi_ctrl_state, SPI_CTRL_TIMEOUT);
-					CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
-					_next_spi_state = SPI_CTRL_IDLE;
+				HAL_SPI_DMAStop(&hspi1);
+
+				// this is assuming we can only do send or receive simultaneously!
+				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
+				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
+				_next_spi_state = SPI_CTRL_IDLE;
 			}
 			break;
 

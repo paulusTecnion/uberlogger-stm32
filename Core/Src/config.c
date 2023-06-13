@@ -2,6 +2,7 @@
 #include "config.h"
 //#include "msg.h"
 #include "stm32g0xx_hal.h"
+#include "iirfilter.h"
 
 extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
@@ -12,6 +13,7 @@ extern RTC_HandleTypeDef hrtc;
 extern uint8_t main_exit_config ;
 extern log_mode_t logMode;
 extern uint8_t _data_lines_per_transaction;
+extern uint8_t is16bitmode;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -49,13 +51,9 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  {
 					  resp.command = STM32_CMD_SET_RESOLUTION;
 					  resp.data = CMD_RESP_OK;
-
-
 				  } else {
 					  resp.command = STM32_CMD_SET_RESOLUTION;
 					  resp.data = CMD_RESP_NOK;
-
-
 				  }
 
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
@@ -218,6 +216,7 @@ uint8_t Config_Set_Time(uint32_t epoch)
 
 uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 {
+
 	// Make sure timer3 has stopped
 	HAL_TIM_Base_Stop_IT(&htim3);
 
@@ -226,62 +225,142 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	 htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 	 htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
+	 // Please look at
+	 // https://tecnionnl.sharepoint.com/:x:/s/uberlogger/EeEoN_zLy7BHslnFgKYobd4BH9o46vYH16z9PU2SE_CJCw?e=748AyK
+	 // for the prescaler values when using 16 bit adc
+
+	 // User must set the resolution before setting the sample rate!
+
+	 if (is16bitmode)
+	 {
+		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV16;
+		  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+		  hadc1.Init.ContinuousConvMode = ENABLE;
+	 } else {
+		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+		  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+		  hadc1.Init.ContinuousConvMode = DISABLE;
+	 }
+
+
+	 // always set prescaler to 32, except when in 16 bit mode and having 100Hz or 250 Hz logging rate
+//	 if (!(is16bitmode && (sampleFreq != ADC_SAMPLE_RATE_100Hz || sampleFreq != ADC_SAMPLE_RATE_250Hz)))
+//	 {
+//		 // Set to prescaler 32. See page 332 of tech reference
+//		ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+//	 }
+
+	 // set the sample frequency for the iir filter
+
+	iir_set_samplefreq(sampleFreq);
+
+
+
 	 switch(sampleFreq)
 	 {
 	 case ADC_SAMPLE_RATE_1Hz:
 		 // Reconfig the timer
-		 htim3.Init.Prescaler = 1000;
-		 htim3.Init.Period = 64000;
+
+
+		 htim3.Init.Prescaler = 1000-1;
+		 htim3.Init.Period = 64000 ;
+
+
 		 break;
 
 	 case ADC_SAMPLE_RATE_2Hz:
 	 		 // Reconfig the timer
-		htim3.Init.Prescaler = 500;
-	 	htim3.Init.Period = 64000;
+
+
+		 htim3.Init.Prescaler = 500-1;
+		 htim3.Init.Period = 64000 ;
+
+
 	 	break;
 
 	 case ADC_SAMPLE_RATE_5Hz:
-		 	// Reconfig the timer
-			htim3.Init.Prescaler = 200;
-		 	htim3.Init.Period = 64000;
+
+
+		 htim3.Init.Prescaler = 200-1;
+		 htim3.Init.Period = 64000 ;
 		 	break;
 
 	 case ADC_SAMPLE_RATE_10Hz:
-		 htim3.Init.Prescaler = 100;
+
+
+		 htim3.Init.Prescaler = 100-1;
 		 htim3.Init.Period = 64000;
+
+
 		 break;
 
 	 case ADC_SAMPLE_RATE_25Hz:
-		 htim3.Init.Prescaler = 100;
-		 htim3.Init.Period = 25600;
+
+
+		htim3.Init.Prescaler = 100-1;
+		htim3.Init.Period = 25600;
 		 break;
 
 	 case ADC_SAMPLE_RATE_50Hz:
-		 htim3.Init.Prescaler = 100;
-		 htim3.Init.Period = 12800;
+
+		htim3.Init.Prescaler = 100-1;
+		htim3.Init.Period = 12800;
+//		htim3.Init.Prescaler = 639;
+//		htim3.Init.Period = 1000;
+
 		 break;
+
 	 case 	ADC_SAMPLE_RATE_100Hz:
-		htim3.Init.Prescaler = 10;
-		htim3.Init.Period = 64000;
+		if (is16bitmode)
+		{
+
+			// prescale 16
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
+			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
+		}
+
+//		htim3.Init.Prescaler = 10-1;
+//		htim3.Init.Period = 64000;
+		htim3.Init.Prescaler = 639;
+		htim3.Init.Period = 1000;
 		 break;
 
 	 case 	ADC_SAMPLE_RATE_250Hz:
-		 htim3.Init.Prescaler = 20;
-		 htim3.Init.Period = 12800;
+		if (is16bitmode)
+		{
+			// prescale 8
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
+			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
+		}
+
+		htim3.Init.Prescaler = 255;
+		htim3.Init.Period = 1000;
 
 		 break;
 
-	 case ADC_SAMPLE_RATE_500Hz:
-		 htim3.Init.Prescaler = 10;
-		 htim3.Init.Period = 12800;
+//	 case ADC_SAMPLE_RATE_500Hz:
+//		if (use16bit)
+//		{
+//			// prescale 64
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
+//		}
+//
+//		htim3.Init.Prescaler = 10-1;
+//		htim3.Init.Period = 12800;
+//
+//
+//		 break;
 
-		 break;
-
-	 case ADC_SAMPLE_RATE_1000Hz:
-		 htim3.Init.Prescaler = 1;
-		 htim3.Init.Period = 64000;
-
-	 break;
+//	 case ADC_SAMPLE_RATE_1000Hz:
+//		 htim3.Init.Prescaler = 1-1;
+//		 htim3.Init.Period = 64000-1;
+//
+//	 break;
 
 //	 case ADC_SAMPLE_RATE_2000Hz:
 //		 htim3.Init.Prescaler = 1;
@@ -295,11 +374,11 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //
 //		 break;
 
-	 case ADC_SAMPLE_RATE_2500Hz:
-			 htim3.Init.Prescaler = 2;
-			 htim3.Init.Period = 12800;
-
-			 break;
+//	 case ADC_SAMPLE_RATE_2500Hz:
+//			 htim3.Init.Prescaler = 2-1;
+//			 htim3.Init.Period = 12800-1;
+//
+//			 break;
 
 
 //	 case ADC_SAMPLE_RATE_5000Hz:
@@ -521,17 +600,25 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 
 
 	case ADC_16_BITS:
+		is16bitmode = 1;
 		hadc1.Init.OversamplingMode = ENABLE;
-		  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
-		  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
-		  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+		hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
+		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
+		hadc1.Init.ContinuousConvMode = DISABLE;
+		hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+
 		break;
 
 	//case ADC_12_BITS:
 	default:
+		is16bitmode = 0;
 		hadc1.Init.OversamplingMode = DISABLE;
 		hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-		 hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
+		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;
+		hadc1.Init.ContinuousConvMode = DISABLE;
+		hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
 		break;
 
 
