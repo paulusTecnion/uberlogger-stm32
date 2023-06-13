@@ -482,8 +482,10 @@ int main(void)
 //				  {
 //					  ADC1->CR |= ADC_CR_ADSTP;
 //				  } else {
+				  if (!is16bitmode)
+				  {
 					 HAL_ADC_Stop_DMA(&hadc1);
-//				  }
+				  }
 
 
 				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
@@ -496,8 +498,12 @@ int main(void)
 		  case MAIN_IDLE:
 			  if (logging_en && spi_ctrl_isIdle())
 			  {
-				  HAL_ADC_Stop_DMA(&hadc1);
-          
+
+				  if (!is16bitmode)
+				  {
+					  HAL_ADC_Stop_DMA(&hadc1);
+				  }
+
 				  tim3_counter = 0;
 				  adc_is_half = 0;
 				  adc_16b_is_half = 0;
