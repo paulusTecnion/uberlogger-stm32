@@ -133,7 +133,7 @@ typedef struct {
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 uint8_t rxbuffer[20];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
-uint16_t * adc_data_u16;
+uint16_t  *adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
 
@@ -145,6 +145,7 @@ uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
 uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
+uint16_t tbuffer[8];
 uint16_t iirFilter[8];
 uint8_t is16bitmode = 0;
 uint16_t adcCounter = 0;
@@ -423,6 +424,17 @@ int main(void)
 	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
 
 	  busy = 0; // reset interrupt timeout
+
+	  // if (is16bitmode)
+	  // {
+		//   memcpy(tbuffer, adc16bBuffer, 16);
+		//   for (int p = 0; p<8; p++)
+		//   {
+		// 	  tbuffer[p] = tbuffer[p] >> 4;
+		//   }
+	  // } else {
+		//   memcpy(tbuffer, spi_msg_1_ptr->adcData, 16);
+	  // }
 
 
 
