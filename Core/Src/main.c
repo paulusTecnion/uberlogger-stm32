@@ -183,7 +183,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		// Disable interrupt
 //		TIM14->DIER &= ~TIM_DIER_UIE;
-		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
+//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 
 		TIM14->CNT = 0;
 		// Indicate timeout
@@ -193,7 +193,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim == &htim16)
 	{
 //		TIM16->DIER &= ~TIM_DIER_UIE;
-		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+//		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 		//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 		TIM16->CNT = 0;
 		// Indicate timeout
