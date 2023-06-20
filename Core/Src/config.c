@@ -233,7 +233,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 	 if (is16bitmode)
 	 {
-		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV16;
+		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
 		  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
 		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
 		  hadc1.Init.ContinuousConvMode = ENABLE;
@@ -320,7 +320,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
-			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
+//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
 		}
 
 //		htim3.Init.Prescaler = 10-1;
@@ -334,7 +334,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		{
 			// prescale 8
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
-			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
+//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
 		}
 
 		htim3.Init.Prescaler = 255;
