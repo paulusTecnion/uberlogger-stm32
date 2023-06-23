@@ -43,7 +43,7 @@ void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)
 
      y_state[channel] += fixedpt_toint(fixedpt_mul(cfp, input_fp-output_fp));
     // the factor 1000000 is used 
-    *output = (int32_t)(y_state[channel]);
+    *output = (uint16_t)(y_state[channel]);
 }
 
 void iir_reset()
