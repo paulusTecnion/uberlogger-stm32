@@ -547,7 +547,7 @@ int main(void)
 				  if (is16bitmode)
 				  {
 					  // reset iir
-					  iir_reset();
+//					  iir_reset();
 
 					  // Start adc
 					  //ADC1->CR |= ADC_CR_ADSTART;
