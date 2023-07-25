@@ -161,53 +161,118 @@ uint8_t Config_Set_Time(uint32_t epoch)
 	RTC_TimeTypeDef time;
 	RTC_DateTypeDef date;
 
-	uint32_t tm;
-	uint32_t t1;
-	uint32_t a;
-	uint32_t b;
-	uint32_t c;
-	uint32_t d;
-	uint32_t e;
-	uint32_t m;
-	int16_t  year  = 0;
-	int16_t  month = 0;
-	int16_t  dow   = 0;
-	int16_t  mday  = 0;
-	int16_t  hour  = 0;
-	int16_t  min   = 0;
-	int16_t  sec   = 0;
-	uint64_t JD    = 0;
-	uint64_t JDN   = 0;
+//	uint32_t tm;
+//	uint32_t t1;
+//	uint32_t a;
+//	uint32_t b;
+//	uint32_t c;
+//	uint32_t d;
+//	uint32_t e;
+//	uint32_t m;
+//	int16_t  year  = 0;
+//	int16_t  month = 0;
+//	int16_t  dow   = 0;
+//	int16_t  mday  = 0;
+//	int16_t  hour  = 0;
+//	int16_t  min   = 0;
+//	int16_t  sec   = 0;
+//	uint64_t JD    = 0;
+//	uint64_t JDN   = 0;
+//
+//	// These hardcore math's are taken from http://en.wikipedia.org/wiki/Julian_day
+//
+//	JD  = ((epoch + 43200) / (86400 >>1 )) + (2440587 << 1) + 1;
+//	JDN = JD >> 1;
+//
+//	tm = epoch; t1 = tm / 60; sec  = tm - (t1 * 60);
+//	tm = t1;    t1 = tm / 60; min  = tm - (t1 * 60);
+//	tm = t1;    t1 = tm / 24; hour = tm - (t1 * 24);
+//
+//
+//	dow   = JDN % 7;
+//	a     = JDN + 32044;
+//	b     = ((4 * a) + 3) / 146097;
+//	c     = a - ((146097 * b) / 4);
+//	d     = ((4 * c) + 3) / 1461;
+//	e     = c - ((1461 * d) / 4);
+//	m     = ((5 * e) + 2) / 153;
+//	mday  = e - (((153 * m) + 2) / 5) + 1;
+//	month = m + 3 - (12 * (m / 10));
+//	year  = (100 * b) + d - 4800 + (m / 10);
+//
+//	date.Year    = year - 2000;
+//	date.Month   = month;
+//	date.Date    = mday;
+//	date.WeekDay = dow;
+//	time.Hours   = hour;
+//	time.Minutes = min;
+//	time.Seconds = sec;
+//
+//
+//	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
+//	HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
 
-	// These hardcore math's are taken from http://en.wikipedia.org/wiki/Julian_day
+	time.Hours = (epoch / 3600) % 24; // Extract hours (range: 0-23)
+	time.Minutes = (epoch / 60) % 60; // Extract minutes (range: 0-59)
+	time.Seconds = epoch % 60; // Extract seconds (range: 0-59)
 
-	JD  = ((epoch + 43200) / (86400 >>1 )) + (2440587 << 1) + 1;
-	JDN = JD >> 1;
+	// Step 2: Convert Unix timestamp to RTC date structure
+	uint32_t days = epoch / 86400; // Number of days since January 1, 1970
 
-	tm = epoch; t1 = tm / 60; sec  = tm - (t1 * 60);
-	tm = t1;    t1 = tm / 60; min  = tm - (t1 * 60);
-	tm = t1;    t1 = tm / 24; hour = tm - (t1 * 24);
+	date.WeekDay = (days + 4) % 7; // Calculate the day of the week (0: Sunday, 1: Monday, ..., 6: Saturday)
 
-	dow   = JDN % 7;
-	a     = JDN + 32044;
-	b     = ((4 * a) + 3) / 146097;
-	c     = a - ((146097 * b) / 4);
-	d     = ((4 * c) + 3) / 1461;
-	e     = c - ((1461 * d) / 4);
-	m     = ((5 * e) + 2) / 153;
-	mday  = e - (((153 * m) + 2) / 5) + 1;
-	month = m + 3 - (12 * (m / 10));
-	year  = (100 * b) + d - 4800 + (m / 10);
+	// Calculate the year, month, and day
+	int16_t year = 1970;
+	int16_t month = 1;
+	int16_t day = 1;
 
-	date.Year    = year - 2000;
-	date.Month   = month;
-	date.Date    = mday;
-	date.WeekDay = dow;
-	time.Hours   = hour;
-	time.Minutes = min;
-	time.Seconds = sec;
+	while (days >= 365) {
+	    if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
+	        if (days >= 366) {
+	            days -= 366;
+	            year++;
+	        }
+	    } else {
+	        days -= 365;
+	        year++;
+	    }
+	}
 
+	while (days > 0) {
+	    int16_t daysInMonth = 0;
+	    switch (month) {
+	        case 1: case 3: case 5: case 7: case 8: case 10: case 12:
+	            daysInMonth = 31;
+	            break;
+	        case 4: case 6: case 9: case 11:
+	            daysInMonth = 30;
+	            break;
+	        case 2:
+	            if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)
+	                daysInMonth = 29;
+	            else
+	                daysInMonth = 28;
+	            break;
+	    }
 
+	    if (days >= daysInMonth) {
+	        days -= daysInMonth;
+	        month++;
+	        if (month > 12) {
+	            month = 1;
+	            year++;
+	        }
+	    } else {
+	        day += days;
+	        days = 0;
+	    }
+	}
+
+	date.Year = year - 2000;
+	date.Month = month;
+	date.Date = day;
+
+	// Step 3: Set RTC date and time
 	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
 	HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
 
