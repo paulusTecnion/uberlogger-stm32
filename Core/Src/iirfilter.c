@@ -27,6 +27,31 @@ uint32_t y_state[NUM_ADC_CHANNELS];
 uint8_t coeff_index = 0;
 
 fixedpt cfp, input_fp, output_fp;
+fixedpt x_fp, c_x_fp, diffx_fp, diffn_fp;
+
+
+
+uint16_t interp( lut_t * c, uint16_t x, int n ){
+    int i;
+
+
+    for( i = 0; i < n-1; i++ )
+    {
+        if ( c[i].x <= x && c[i+1].x >= x )
+        {
+        	//            int32_t diffx = x - c[i].x;
+        	//            int32_t diffn = c[i+1].x - c[i].x;
+        	diffx_fp = fixedpt_fromint(x - c[i].x);
+        	diffn_fp = fixedpt_fromint(c[i+1].x - c[i].x);
+
+//        	return (c[i].y << Q) + q_mul(( c[i+1].y - c[i].y ) << Q, q_div(diffx << Q, diffn << Q));
+        	output_fp =  fixedpt_fromint(c[i].y) + fixedpt_mul(fixedpt_fromint(c[i+1].y - c[i].y), fixedpt_div(diffx_fp, diffn_fp));
+        	return fixedpt_toint(output_fp);
+        }
+    }
+    return x; // Not in range, just return the input
+}
+
 
 
 void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)

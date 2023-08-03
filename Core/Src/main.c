@@ -58,6 +58,7 @@
 #define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
 #define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
 
+#define ADC_LUT_SIZE 7
 
 /* USER CODE END PD */
 
@@ -150,6 +151,15 @@ uint16_t iirFilter[8];
 uint8_t is16bitmode = 0;
 uint16_t adcCounter = 0;
 
+lut_t ADC_LUT[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
+    {60000, 59000},
+    {61000, 59600},
+    {62000, 60000},
+    {63000, 61000},
+    {64000, 62000},
+    {64500, 63000},
+    {65535, 65000},
+  };
 
 
 /* USER CODE END PV */
@@ -287,6 +297,9 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		} else {
 			for (int i = 0; i<8; i++)
 			{
+				// First correct adc values for non-linearities
+				adc16bBuffer[i] = interp(ADC_LUT, adc16bBuffer[i], ADC_LUT_SIZE);
+				// Then filter
 				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
 			}
 		}
@@ -302,6 +315,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		} else {
 			for (int i = 0; i<8; i++)
 			{
+				// First correct adc values for non-linearities
+
+				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}
 		}
@@ -351,9 +367,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
+  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
