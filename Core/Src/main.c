@@ -27,6 +27,7 @@
 #include <time.h>
 #include "spi_ctrl.h"
 #include "iirfilter.h"
+#include "adc_comp_lut.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,7 +59,7 @@
 #define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
 #define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
 
-#define ADC_LUT_SIZE 7
+
 
 /* USER CODE END PD */
 
@@ -115,11 +116,17 @@ typedef struct {
     uint8_t padding3;
     uint8_t padding4;
     uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
 } spi_msg_1_t;
 
 typedef struct {
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
     uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
     uint8_t padding1;
     uint8_t padding2;
@@ -151,15 +158,7 @@ uint16_t iirFilter[8];
 uint8_t is16bitmode = 0;
 uint16_t adcCounter = 0;
 
-lut_t ADC_LUT[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-    {60000, 59000},
-    {61000, 59600},
-    {62000, 60000},
-    {63000, 61000},
-    {64000, 62000},
-    {64500, 63000},
-    {65535, 65000},
-  };
+
 
 
 /* USER CODE END PV */
@@ -293,12 +292,16 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		adc_is_half = 1;
 		if (!is16bitmode)
 		{
+			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+			{
+				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
+			}
 			adc_ready = 1;
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i] = interp(ADC_LUT, adc16bBuffer[i], ADC_LUT_SIZE);
+				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
 			}
@@ -311,12 +314,16 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		adc_is_half = 0;
 		if (!is16bitmode)
 		{
+			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+			{
+				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
+			}
 			adc_ready = 1;
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-
+				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i+8]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}

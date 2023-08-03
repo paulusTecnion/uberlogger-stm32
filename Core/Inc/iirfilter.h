@@ -11,8 +11,5 @@
 void  iir_filter(uint16_t * input, uint16_t * output, uint8_t channel);
 uint8_t iir_set_samplefreq(uint8_t sampleFreq);
 void iir_reset();
-typedef struct { int32_t x; int32_t y; } lut_t;
-
-uint16_t interp( lut_t * c, uint16_t x, int n );
 
 #endif
