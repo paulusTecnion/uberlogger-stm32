@@ -323,7 +323,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i+8]));
+				adc16bBuffer[i+8] = adc_comp_16b(&(adc16bBuffer[i+8]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}
