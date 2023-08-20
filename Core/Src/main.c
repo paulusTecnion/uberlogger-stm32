@@ -415,6 +415,8 @@ int main(void)
   spi_msg_2_ptr->stopByte[0]= 0xFB;
   spi_msg_2_ptr->stopByte[1]= 0xFA;
 
+  iir_init();
+
 
   HAL_TIM_Base_Start(&htim14);
   HAL_TIM_Base_Start(&htim16);

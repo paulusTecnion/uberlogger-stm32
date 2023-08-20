@@ -11,5 +11,6 @@
 void  iir_filter(uint16_t * input, uint16_t * output, uint8_t channel);
 uint8_t iir_set_samplefreq(uint8_t sampleFreq);
 void iir_reset();
+void iir_init();
 
 #endif

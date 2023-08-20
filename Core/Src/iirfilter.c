@@ -11,7 +11,7 @@
 // 0.792120424
 // 0.956786082
 //#define TAG_IIR "IIR"
-#define FIXEDPT_WBITS 17
+#define FIXEDPT_WBITS 16
 #include "fixedptc.h"
 
 
@@ -20,7 +20,7 @@
 
 //const int64_t c[NUM_COEFFICIENTS] = {8584925, 16432841, 32476809, 54406187, 79212042, 95678608, 95678608, 95678608};      // mulitplied with 100000000
 
-const float cfl[NUM_COEFFICIENTS] = { 0.00184806, 0.003692705, 0.00920621, 0.018327665, 0.045191272, 0.088340294, 0.16887658, 0.370256345};
+ fixedpt cfl[NUM_COEFFICIENTS];
 
 //int64_t x_state[NUM_ADC_CHANNELS];
 uint32_t y_state[NUM_ADC_CHANNELS];
@@ -63,7 +63,7 @@ uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 			sampleFreq <= ADC_SAMPLE_RATE_250Hz)
 	{
 		coeff_index = sampleFreq;
-		cfp = fixedpt_rconst(cfl[coeff_index]);
+		cfp = cfl[coeff_index];
 
 		return 0;
 	}
@@ -72,6 +72,19 @@ uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 
 }
 
+void iir_init()
+{
+	//{ 0.00184806, 0.003692705, 0.00920621, 0.018327665, 0.045191272, 0.088340294, 0.16887658, 0.370256345};
+	cfl[0] = fixedpt_rconst(0.00184806);
+	cfl[1] = fixedpt_rconst(0.003692705);
+	cfl[2] = fixedpt_rconst(0.00920621);
+	cfl[3] = fixedpt_rconst(0.018327665);
+	cfl[4] = fixedpt_rconst(0.045191272);
+	cfl[5] = fixedpt_rconst(0.088340294);
+	cfl[6] = fixedpt_rconst(0.16887658);
+	cfl[7] = fixedpt_rconst(0.370256345);
+
+}
 
 
 

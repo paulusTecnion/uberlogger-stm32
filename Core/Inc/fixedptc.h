@@ -120,12 +120,12 @@ typedef	__uint128_t fixedptud;
 //#define FIXEDPT_HALF_PI	fixedpt_rconst(3.14159265358979323846 / 2)
 //#define FIXEDPT_E	fixedpt_rconst(2.7182818284590452354)
 
-#define fixedpt_abs(A) ((A) < 0 ? -(A) : (A))
+//#define fixedpt_abs(A) ((A) < 0 ? -(A) : (A))
 
 /* fixedpt is meant to be usable in environments without floating point support
  * (e.g. microcontrollers, kernels), so we can't use floating point types directly.
  * Putting them only in macros will effectively make them optional. */
-#define fixedpt_tofloat(T) ((float) ((T)*((float)(1)/(float)(1L << FIXEDPT_FBITS))))
+//#define fixedpt_tofloat(T) ((float) ((T)*((float)(1)/(float)(1L << FIXEDPT_FBITS))))
 
 
 /* Multiplies two fixedpt numbers, returns the result. */
