@@ -374,9 +374,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
+//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
+//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
+//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
