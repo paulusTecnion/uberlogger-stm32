@@ -30,7 +30,8 @@ uint32_t temp[NUM_ADC_CHANNELS] = {0};
 
 void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)
 {
-
+	// Here we calculate the error in 32 bits. Then we add a fraction of the error to the output of signal. This way we smartly solve the limit cycle problem with iir filters.
+	// See: https://dsp.stackexchange.com/questions/66171/single-pole-iir-filter-fixed-point-design
 	temp[channel] = temp[channel] + cfp * (*input - *output);
 
 	y_state[channel] = round_value(temp[channel]);
