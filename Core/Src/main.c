@@ -27,6 +27,7 @@
 #include <time.h>
 #include "spi_ctrl.h"
 #include "iirfilter.h"
+#include "adc_comp_lut.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,28 +37,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-
-// WARNING: DO NOT CHANGE THE NEXT LINES UNLESS YOU KNOW WHAT YOU ARE DOING.
-// BYTES NEED TO BE 4 BYTES ALIGNED!
-#define DATA_LINES_PER_SPI_TRANSACTION  70
-#define ADC_VALUES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*8 // Number of ADC uint16_t per transaction. This is 5 times 480 ADC values
-#define ADC_BYTES_PER_SPI_TRANSACTION ADC_VALUES_PER_SPI_TRANSACTION*2
-#define GPIO_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*1
-#define TIME_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*12
-#define START_STOP_NUM_BYTES            2
-
-
-// Number of bytes when receiving data from the STM
-#define STM_SPI_BUFFERSIZE_DATA_TX      (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION + START_STOP_NUM_BYTES)
-#define STM_DATA_BUFFER_SIZE_PER_TRANSACTION (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION)
-
-//#define STM_SPI_BUFFERSIZE_DATA_TX 1020
-#define ADC_BUFFERSIZE_SAMPLES ADC_VALUES_PER_SPI_TRANSACTION*2
-#define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
-#define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
-#define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
-
 
 /* USER CODE END PD */
 
@@ -114,11 +93,17 @@ typedef struct {
     uint8_t padding3;
     uint8_t padding4;
     uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
 } spi_msg_1_t;
 
 typedef struct {
-    uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
     uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
     uint8_t padding1;
     uint8_t padding2;
@@ -151,6 +136,7 @@ uint8_t is16bitmode = 0;
 uint16_t adcCounter = 0;
 
 
+uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 /* USER CODE END PV */
 
@@ -257,7 +243,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		gpio_result_write_ptr++;
 
 
-		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
+		if (gpio_result_write_ptr >= spi_lines_per_transaction)
 		{
 			gpio_is_half = !gpio_is_half;
 			gpio_ready = 1;
@@ -270,7 +256,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			}
 		}
 
-		gpio_result_write_ptr = gpio_result_write_ptr % GPIO_BYTES_PER_SPI_TRANSACTION;
+		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
 		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
@@ -283,10 +269,17 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		adc_is_half = 1;
 		if (!is16bitmode)
 		{
+			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+			{
+				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
+			}
 			adc_ready = 1;
 		} else {
 			for (int i = 0; i<8; i++)
 			{
+				// First correct adc values for non-linearities
+				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i]));
+				// Then filter
 				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
 			}
 		}
@@ -298,10 +291,17 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		adc_is_half = 0;
 		if (!is16bitmode)
 		{
+			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+			{
+				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
+			}
 			adc_ready = 1;
 		} else {
 			for (int i = 0; i<8; i++)
 			{
+				// First correct adc values for non-linearities
+				adc16bBuffer[i+8] = adc_comp_16b(&(adc16bBuffer[i+8]));
+				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}
 		}
@@ -391,6 +391,8 @@ int main(void)
   spi_msg_1_ptr->startByte[1] = 0xFB;
   spi_msg_2_ptr->stopByte[0]= 0xFB;
   spi_msg_2_ptr->stopByte[1]= 0xFA;
+
+  iir_init();
 
 
   HAL_TIM_Base_Start(&htim14);
@@ -547,7 +549,7 @@ int main(void)
 				  if (is16bitmode)
 				  {
 					  // reset iir
-					  iir_reset();
+//					  iir_reset();
 
 					  // Start adc
 					  //ADC1->CR |= ADC_CR_ADSTART;
