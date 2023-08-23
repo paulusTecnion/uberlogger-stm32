@@ -38,29 +38,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-
-// WARNING: DO NOT CHANGE THE NEXT LINES UNLESS YOU KNOW WHAT YOU ARE DOING.
-// BYTES NEED TO BE 4 BYTES ALIGNED!
-#define DATA_LINES_PER_SPI_TRANSACTION  70
-#define ADC_VALUES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*8 // Number of ADC uint16_t per transaction. This is 5 times 480 ADC values
-#define ADC_BYTES_PER_SPI_TRANSACTION ADC_VALUES_PER_SPI_TRANSACTION*2
-#define GPIO_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*1
-#define TIME_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*12
-#define START_STOP_NUM_BYTES            2
-
-
-// Number of bytes when receiving data from the STM
-#define STM_SPI_BUFFERSIZE_DATA_TX      (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION + START_STOP_NUM_BYTES)
-#define STM_DATA_BUFFER_SIZE_PER_TRANSACTION (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION)
-
-//#define STM_SPI_BUFFERSIZE_DATA_TX 1020
-#define ADC_BUFFERSIZE_SAMPLES ADC_VALUES_PER_SPI_TRANSACTION*2
-#define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
-#define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
-#define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
-
-
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -159,7 +136,7 @@ uint8_t is16bitmode = 0;
 uint16_t adcCounter = 0;
 
 
-
+uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 /* USER CODE END PV */
 
@@ -266,7 +243,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		gpio_result_write_ptr++;
 
 
-		if (gpio_result_write_ptr == GPIO_BYTES_PER_SPI_TRANSACTION)
+		if (gpio_result_write_ptr >= spi_lines_per_transaction)
 		{
 			gpio_is_half = !gpio_is_half;
 			gpio_ready = 1;
@@ -279,7 +256,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			}
 		}
 
-		gpio_result_write_ptr = gpio_result_write_ptr % GPIO_BYTES_PER_SPI_TRANSACTION;
+		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
 		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
@@ -756,7 +733,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr > 2)
+			  if (gpio_result_write_ptr >= 1)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
