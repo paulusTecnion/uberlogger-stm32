@@ -733,7 +733,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr >= 1)
+			  if (gpio_result_write_ptr > 2)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
