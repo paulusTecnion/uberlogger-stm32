@@ -23,11 +23,23 @@
  fixedpt cfl[NUM_COEFFICIENTS];
 
 //int64_t x_state[NUM_ADC_CHANNELS];
-uint32_t y_state[NUM_ADC_CHANNELS];
+uint16_t y_state[NUM_ADC_CHANNELS] = {0};
 uint8_t coeff_index = 0;
 
-fixedpt cfp, input_fp, output_fp;
+//fixedpt cfp, input_fp, output_fp;
+uint16_t cfp;
 
+uint16_t round_value(uint32_t val) {
+    return (val + 32768) >> 16;  // Add half of 2^16 to round, then shift
+}
+
+uint16_t divRoundClosest(const uint32_t n)
+{
+  const uint16_t d = 32768;
+  return ((n < 0) == (d < 0)) ? ((n + d/2)/d) : ((n - d/2)/d);
+}
+
+uint32_t temp[NUM_ADC_CHANNELS] = {0};
 
 void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)
 {
@@ -36,13 +48,17 @@ void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)
     // Multiply and accumulate
     // ESP_LOGI(TAG_IIR, "input: %ld, coeff: %lld, y_state: %lld", input, c[channel][coeff_index], y_state[channel]);
 //    y_state[channel] = ((c[coeff_index] * (int64_t)*input ) + ((100000000LL-c[coeff_index]) * y_state[channel]))/ 100000000LL;
-     input_fp = fixedpt_fromint(*input);
-     output_fp = fixedpt_fromint(y_state[channel]);
+//     input_fp = fixedpt_fromint(*input);
+//     output_fp = fixedpt_fromint(y_state[channel]);
+	temp[channel] = temp[channel] + cfp * (*input - *output);
+//	y_state[channel] = divRoundClosest(temp[channel]);
+	y_state[channel] = round_value(temp[channel]);
 
+	*output = y_state[channel];
 
-     y_state[channel] += fixedpt_toint(fixedpt_mul(cfp, input_fp-output_fp));
+//     y_state[channel] += fixedpt_toint(fixedpt_mul(cfp, input_fp-output_fp));
     // the factor 1000000 is used 
-    *output = (uint16_t)(y_state[channel]);
+//    *output = (uint16_t)(y_state[channel]);
 }
 
 void iir_reset()
@@ -51,8 +67,8 @@ void iir_reset()
     for (int i = 0; i < NUM_ADC_CHANNELS; i++)
     {
         y_state[i] = 0;
-        input_fp = 0;
-        output_fp = 0;
+//        input_fp = 0;
+//        output_fp = 0;
     }
 
 }
