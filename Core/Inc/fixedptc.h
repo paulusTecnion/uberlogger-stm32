@@ -143,6 +143,24 @@ fixedpt_div(fixedpt A, fixedpt B)
 	return (((fixedptd)A << FIXEDPT_FBITS) / (fixedptd)B);
 }
 
+static inline int32_t q_mul(int32_t a, int32_t b){
+    int64_t result;
+
+    result = (int64_t)a * (int64_t)b;
+    result += (1<<((FIXEDPT_BITS - FIXEDPT_WBITS) - 1)); // correction of rounding
+
+    return result >> (FIXEDPT_BITS - FIXEDPT_WBITS);
+}
+
+static inline int32_t q_div(int32_t a, int32_t b){
+    int64_t result;
+
+    result=(int64_t)a << (FIXEDPT_BITS - FIXEDPT_WBITS);
+    // no rounding applied
+
+    return (int32_t)(result / b);
+}
+
 /*
  * Note: adding and substracting fixedpt numbers can be done by using
  * the regular integer operators + and -.

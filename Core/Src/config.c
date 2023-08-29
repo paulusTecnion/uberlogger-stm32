@@ -303,11 +303,17 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
 		  hadc1.Init.ContinuousConvMode = ENABLE;
 	 } else {
-		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
-		  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-		  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-		  hadc1.Init.ContinuousConvMode = DISABLE;
+		hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV256;
+		hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+		hadc1.Init.ContinuousConvMode = ENABLE;
 	 }
+	//  else {
+	// 	 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+	// 	  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
+	// 	  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+	// 	  hadc1.Init.ContinuousConvMode = DISABLE;
+	//  }
 
 
 	 // always set prescaler to 32, except when in 16 bit mode and having 100Hz or 250 Hz logging rate
