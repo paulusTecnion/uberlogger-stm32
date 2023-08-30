@@ -58,14 +58,16 @@ uint16_t interp( lut_t * c, uint16_t x, int n ){
     {
         if ( c[i].x <= x && c[i+1].x >= x )
         {
-        	//            int32_t diffx = x - c[i].x;
-        	//            int32_t diffn = c[i+1].x - c[i].x;
-        	diffx_fp = fixedpt_fromint(x - c[i].x);
-        	diffn_fp = fixedpt_fromint(c[i+1].x - c[i].x);
+        	            int32_t diffx = x - c[i].x;
+        	            int32_t diffn = c[i+1].x - c[i].x;
+        	            int32_t result = 0;
+//        	diffx_fp = fixedpt_fromint(x - c[i].x);
+//        	diffn_fp = fixedpt_fromint(c[i+1].x - c[i].x);
 
-//        	return (c[i].y << Q) + q_mul(( c[i+1].y - c[i].y ) << Q, q_div(diffx << Q, diffn << Q));
-        	output_fp_adc =  fixedpt_fromint(c[i].y) + fixedpt_mul(fixedpt_fromint(c[i+1].y - c[i].y), fixedpt_div(diffx_fp, diffn_fp));
-        	return fixedpt_toint(output_fp_adc);
+        	result =  (c[i].y << Q) + q_mul(( c[i+1].y - c[i].y ) << Q, q_div(diffx << Q, diffn << Q));
+        	return (result >> Q);
+//        	output_fp_adc =  fixedpt_fromint(c[i].y) + fixedpt_mul(fixedpt_fromint(c[i+1].y - c[i].y), fixedpt_div(diffx_fp, diffn_fp));
+//        	return fixedpt_toint(output_fp_adc);
         }
     }
     return x; // Not in range, just return the input
