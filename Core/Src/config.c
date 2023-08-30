@@ -3,6 +3,7 @@
 //#include "msg.h"
 #include "stm32g0xx_hal.h"
 #include "iirfilter.h"
+#include "adc_comp_lut.h"
 
 extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
@@ -13,7 +14,8 @@ extern RTC_HandleTypeDef hrtc;
 extern uint8_t main_exit_config ;
 extern log_mode_t logMode;
 extern uint8_t _data_lines_per_transaction;
-extern uint8_t is16bitmode;
+extern adc_resolution_t adc_resolution;
+extern adc_channel_range_t adc_voltage_range_g;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -24,8 +26,8 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 		switch(cmd->command)
 		{
-			  case CMD_NOP:
-				  resp.command = CMD_NOP;
+			  case STM32_CMD_NOP:
+				  resp.command = STM32_CMD_NOP;
 				  resp.data = CMD_RESP_OK;
 
 
@@ -42,6 +44,11 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 				  {
 					  ADC_Reinit();
+					  for (int i = 0; i < NUM_ADC_CHANNELS; i++)
+					  {
+						  adc_set_lut(adc_voltage_range_g,  adc_resolution, i);
+					  }
+
 					  main_exit_config = 1;
 				  }
 				  break;
@@ -122,17 +129,36 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 				  break;
 
+			  case STM32_CMD_SET_RANGE:
+				  resp.command = STM32_CMD_SET_RANGE;
+				  if (!Config_set_range((adc_channel_range_t)cmd->data))
+				  {
+					  resp.data = CMD_RESP_OK;
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+				  }
+
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+				  break;
+
+
 
 			  default:
 				  resp.command = CMD_UNKNOWN;
 				  resp.data = CMD_RESP_NOK;
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
-
 		  }
 
 }
 
+
+uint8_t Config_set_range(adc_channel_range_t range)
+{
+	// Range can be anything between 0 and 255
+	adc_voltage_range_g = range;
+	return 0;
+}
 
 
 uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
@@ -296,7 +322,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 	 // User must set the resolution before setting the sample rate!
 
-	 if (is16bitmode)
+	 if (adc_resolution == ADC_16_BITS)
 	 {
 		 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
 		  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -384,15 +410,15 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 break;
 
 	 case 	ADC_SAMPLE_RATE_100Hz:
-		if (is16bitmode)
-		{
+//		if (is16bitmode)
+//		{
 
 			// prescale 16
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
 //			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
-		}
+//		}
 
 //		htim3.Init.Prescaler = 10-1;
 //		htim3.Init.Period = 64000;
@@ -401,12 +427,12 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 break;
 
 	 case 	ADC_SAMPLE_RATE_250Hz:
-		if (is16bitmode)
-		{
+//		if (adc_resolution == 1)
+//		{
 			// prescale 8
 //			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
 //			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
-		}
+//		}
 
 		htim3.Init.Prescaler = 255;
 		htim3.Init.Period = 1000;
@@ -671,7 +697,7 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 
 
 	case ADC_16_BITS:
-		is16bitmode = 1;
+		adc_resolution = ADC_16_BITS;
 		hadc1.Init.OversamplingMode = ENABLE;
 		hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_256;
 		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
@@ -683,7 +709,7 @@ uint8_t Config_Set_Resolution(uint8_t resolution)
 
 	//case ADC_12_BITS:
 	default:
-		is16bitmode = 0;
+		adc_resolution = ADC_12_BITS;
 		hadc1.Init.OversamplingMode = DISABLE;
 		hadc1.Init.Resolution = ADC_RESOLUTION_12B;
 		hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_NONE;

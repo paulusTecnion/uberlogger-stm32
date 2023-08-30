@@ -132,8 +132,12 @@ uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
 uint16_t tbuffer[8];
 uint16_t iirFilter[8];
-uint8_t is16bitmode = 0;
+
+adc_resolution_t adc_resolution = ADC_12_BITS;
+adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
 uint16_t adcCounter = 0;
+
+extern lut_t * active_lut_table[NUM_ADC_CHANNELS];
 
 
 uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -228,7 +232,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 
 		// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
-		if (is16bitmode)
+		if (adc_resolution == ADC_16_BITS)
 		{
 			if (!adc_16b_is_half)
 			{
@@ -257,14 +261,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			gpio_ready = 1;
 
 			// when in 16 bit mode, manually set adc_ready flag
-			if (is16bitmode)
+			if (adc_resolution == ADC_16_BITS)
 			{
 				adc_16b_is_half = ~adc_16b_is_half;
 				// adc_ready = 1;
 			} else {
-        adc_is_half = ~adc_is_half;
-      }
-      adc_ready = 1;
+				adc_is_half = ~adc_is_half;
+		  }
+		  adc_ready = 1;
 		}
 
 		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
@@ -278,7 +282,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 
-		if (!is16bitmode)
+		if (adc_resolution == ADC_12_BITS)
 		{
 //			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
 //			{
@@ -288,14 +292,14 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				//  correct adc values for non-linearities
-				iirFilter[i] = adc_comp_12b(&(adc16bBuffer[i]));
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc16bBuffer[i]));
 			}
 
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i]));
+				adc16bBuffer[i] = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
 			}
@@ -306,7 +310,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 		
-		if (!is16bitmode)
+		if (adc_resolution == ADC_12_BITS)
 		{
 //			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
 //			{
@@ -316,14 +320,14 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				iirFilter[i] = adc_comp_12b(&(adc16bBuffer[i+8]));
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
 			}
 		
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i+8] = adc_comp_16b(&(adc16bBuffer[i+8]));
+				adc16bBuffer[i+8] = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}
@@ -479,7 +483,7 @@ int main(void)
 
 				tim3_counter=0;
 
-				if (is16bitmode)
+				if (adc_resolution == ADC_16_BITS)
 				{
 
 					if (adc_16b_is_half)
@@ -634,7 +638,7 @@ int main(void)
 							  break;
 
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
-							  if (is16bitmode)
+							  if (adc_resolution == ADC_16_BITS)
 							  {
 								  if (adc_16b_is_half)
 								  {
@@ -658,7 +662,7 @@ int main(void)
 
 							  break;
 
-						  case CMD_NOP:
+						  case STM32_CMD_NOP:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 //							  resp.command = CMD_NOP;
 //							  resp.data = CMD_RESP_OK;
@@ -667,7 +671,7 @@ int main(void)
 
 						  default:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
-							  resp.command = CMD_NOP;
+							  resp.command = STM32_CMD_NOP;
 							  resp.data = CMD_RESP_NOK;
 							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
