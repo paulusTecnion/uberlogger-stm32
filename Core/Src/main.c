@@ -130,6 +130,7 @@ uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
 uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
+uint16_t adc12Buffer[8*8];
 uint16_t tbuffer[8];
 uint16_t iirFilter[8];
 
@@ -292,7 +293,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				//  correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc16bBuffer[i]));
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i]));
 			}
 
 		} else {
@@ -320,7 +321,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i+8*4]));
 			}
 		
 		} else {
@@ -694,11 +695,18 @@ int main(void)
 				  // Start the ADC if we are in 16 bit mode.
 //				  if (is16bitmode)
 //				  {
+				  if (adc_resolution == ADC_12_BITS)
+				  {
+					  HAL_ADC_Start_DMA(
+					  					  &hadc1,
+					  					  (uint32_t*)(adc12Buffer),
+					  					  8*8);
+				  } else {
 					  HAL_ADC_Start_DMA(
 					  &hadc1,
 					  (uint32_t*)(adc16bBuffer),
 					  16);
-
+				  }
 //				  }
 
 				  main_exit_config = 0 ;
@@ -822,7 +830,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
   RCC_OscInitStruct.PLL.PLLN = 8;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV32;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
