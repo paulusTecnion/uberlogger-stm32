@@ -116,7 +116,7 @@ typedef struct {
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
-uint8_t rxbuffer[20];
+
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
@@ -360,6 +360,22 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 	}
 }
 
+void Adc_start()
+{
+	if (adc_resolution == ADC_12_BITS)
+	{
+		HAL_ADC_Start_DMA(
+		&hadc1,
+		(uint32_t*)(adc12Buffer),
+		8*8);
+	} else {
+		HAL_ADC_Start_DMA(
+		&hadc1,
+		(uint32_t*)(adc16bBuffer),
+		16);
+	}
+}
+
 
 /* USER CODE END 0 */
 
@@ -435,6 +451,8 @@ int main(void)
   memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
 
   HAL_ADCEx_Calibration_Start(&hadc1);
+  Adc_start();
+  busy = 1;
 //  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
 //  {
 //	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
@@ -695,18 +713,7 @@ int main(void)
 				  // Start the ADC if we are in 16 bit mode.
 //				  if (is16bitmode)
 //				  {
-				  if (adc_resolution == ADC_12_BITS)
-				  {
-					  HAL_ADC_Start_DMA(
-					  					  &hadc1,
-					  					  (uint32_t*)(adc12Buffer),
-					  					  8*8);
-				  } else {
-					  HAL_ADC_Start_DMA(
-					  &hadc1,
-					  (uint32_t*)(adc16bBuffer),
-					  16);
-				  }
+				  Adc_start();
 //				  }
 
 				  main_exit_config = 0 ;
