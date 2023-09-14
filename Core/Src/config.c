@@ -184,8 +184,8 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 uint8_t Config_Set_Time(uint32_t epoch)
 {
 
-	RTC_TimeTypeDef time;
-	RTC_DateTypeDef date;
+	RTC_TimeTypeDef time = {0};
+	RTC_DateTypeDef date = {0};
 
 //	uint32_t tm;
 //	uint32_t t1;
@@ -242,6 +242,11 @@ uint8_t Config_Set_Time(uint32_t epoch)
 	time.Minutes = (epoch / 60) % 60; // Extract minutes (range: 0-59)
 	time.Seconds = epoch % 60; // Extract seconds (range: 0-59)
 
+
+	time.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	time.StoreOperation = RTC_STOREOPERATION_RESET;
+
+
 	// Step 2: Convert Unix timestamp to RTC date structure
 	uint32_t days = epoch / 86400; // Number of days since January 1, 1970
 
@@ -297,6 +302,7 @@ uint8_t Config_Set_Time(uint32_t epoch)
 	date.Year = year - 2000;
 	date.Month = month;
 	date.Date = day;
+
 
 	// Step 3: Set RTC date and time
 	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
