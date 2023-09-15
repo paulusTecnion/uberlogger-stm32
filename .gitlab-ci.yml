@@ -14,12 +14,11 @@ release_job:
     - git push https://oauth2:${GITLAB_PRIVATE_TOKEN}@gitlab.com/uberlogger/uberlogger-stm32.git --tags -o ci.skip
 
     # Create a release using GitLab's API.
-    - >
-      curl --request POST "https://gitlab.com/api/v4/projects/$CI_PROJECT_ID/releases" 
-      --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" 
-      --form "name=$RELEASE_NAME" 
-      --form "tag_name=$RELEASE_VERSION" 
-      --form "description=$RELEASE_NOTE" 
+    - |
+      curl --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" -X POST "https://gitlab.com/api/v4/projects/$CI_PROJECT_ID/releases" \
+      -d "name=$RELEASE_NAME" \
+      -d "tag_name=$RELEASE_VERSION" \
+      -d "description=Release version $RELEASE_VERSION" \
       --form "assets[links][0][name]=ota_support.bin" 
       --form "assets[links][0][url]=$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/ota_support.bin?job=release_job"
   artifacts:
