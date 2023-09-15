@@ -4,7 +4,7 @@ stages:
 release_job:
   stage: release
   only:
-    - master
+    - main
   script:
     - "RELEASE_VERSION=$(cat .release-version)"
     - 'RELEASE_NAME="Release $RELEASE_VERSION"'
