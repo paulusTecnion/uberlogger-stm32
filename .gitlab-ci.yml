@@ -6,9 +6,9 @@ release_job:
   only:
     - main
   script:
-    - "RELEASE_VERSION=$(cat .release-version)"
-    - 'RELEASE_NAME="Release $RELEASE_VERSION"'
-    - 'RELEASE_NOTE="Release notes for version $RELEASE_VERSION"'
+    - RELEASE_VERSION=$(cat .release-version)
+    - RELEASE_NAME="Release $RELEASE_VERSION"
+    - RELEASE_NOTE="Release notes for version $RELEASE_VERSION"
 
     - git tag $RELEASE_VERSION
     - git push https://oauth2:${GITLAB_PRIVATE_TOKEN}@gitlab.com/uberlogger/uberlogger-stm32.git --tags -o ci.skip
@@ -18,9 +18,9 @@ release_job:
       curl --header "PRIVATE-TOKEN: ${GITLAB_PRIVATE_TOKEN}" -X POST "https://gitlab.com/api/v4/projects/$CI_PROJECT_ID/releases" \
       -d "name=$RELEASE_NAME" \
       -d "tag_name=$RELEASE_VERSION" \
-      -d "description=Release version $RELEASE_VERSION" \
-      --form "assets[links][0][name]=ota_support.bin" 
-      --form "assets[links][0][url]=$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/ota_support.bin?job=release_job"
+      -d "description=$RELEASE_NOTE" \
+      -d "assets[links][0][name]=ota_support.bin" \
+      -d "assets[links][0][url]=$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_REF_NAME/raw/ota_support.bin?job=release_job"
   artifacts:
     paths:
       - ota_support.bin
