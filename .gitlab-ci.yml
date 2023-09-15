@@ -10,6 +10,9 @@ release_job:
     - 'RELEASE_NAME="Release $RELEASE_VERSION"'
     - 'RELEASE_NOTE="Release notes for version $RELEASE_VERSION"'
 
+    - git tag $RELEASE_VERSION
+    - git push https://oauth2:${GITLAB_PRIVATE_TOKEN}@gitlab.com/uberlogger/uberlogger-stm32.git --tags -o ci.skip
+
     # Create a release using GitLab's API.
     - >
       curl --request POST "https://gitlab.com/api/v4/projects/$CI_PROJECT_ID/releases" 
