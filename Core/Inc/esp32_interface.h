@@ -10,7 +10,7 @@
 
 #define MAX_WIFI_SSID_LEN 50
 #define MAX_WIFI_PASSW_LEN 20
-
+#define NUM_ADC_CHANNELS 8
 
 typedef enum adc_channel_e {
 	ADC_CHANNEL_0_T = 0x00,
@@ -82,7 +82,7 @@ typedef enum log_mode_e {
 
 
 typedef enum  {
-	CMD_NOP = 0x00,
+	STM32_CMD_NOP = 0x00,
 	STM32_CMD_SETTINGS_MODE,
 	STM32_CMD_SETTINGS_SYNC,
 	STM32_CMD_MEASURE_MODE,
@@ -93,6 +93,7 @@ typedef enum  {
 	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
 	STM32_CMD_SEND_LAST_ADC_BYTES,
 	STM32_CMD_SET_LOGMODE,
+	STM32_CMD_SET_RANGE,
 	CMD_UNKNOWN
 } spi_cmd_esp_t;
 

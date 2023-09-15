@@ -116,7 +116,7 @@ typedef struct {
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
-uint8_t rxbuffer[20];
+
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
@@ -130,10 +130,15 @@ uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
 uint8_t datardypin;
 uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
+uint16_t adc12Buffer[8*8];
 uint16_t tbuffer[8];
 uint16_t iirFilter[8];
-uint8_t is16bitmode = 0;
+
+adc_resolution_t adc_resolution = ADC_12_BITS;
+adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
 uint16_t adcCounter = 0;
+
+extern lut_t * active_lut_table[NUM_ADC_CHANNELS];
 
 
 uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -228,7 +233,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 
 		// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
-		if (is16bitmode)
+		if (adc_resolution == ADC_16_BITS)
 		{
 			if (!adc_16b_is_half)
 			{
@@ -236,7 +241,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			} else {
 				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
-		}
+		} else {
+			if (!adc_is_half)
+			{
+        // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode. 
+				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+			} else {
+				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+			}
+    }
 
 
 		tim3_counter++;
@@ -249,11 +262,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			gpio_ready = 1;
 
 			// when in 16 bit mode, manually set adc_ready flag
-			if (is16bitmode)
+			if (adc_resolution == ADC_16_BITS)
 			{
 				adc_16b_is_half = ~adc_16b_is_half;
-				adc_ready = 1;
-			}
+				// adc_ready = 1;
+			} else {
+				adc_is_half = ~adc_is_half;
+		  }
+		  adc_ready = 1;
 		}
 
 		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
@@ -266,19 +282,25 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
-		adc_is_half = 1;
-		if (!is16bitmode)
+
+		if (adc_resolution == ADC_12_BITS)
 		{
-			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+//			{
+//				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
+//			}
+
+			for (int i = 0; i<8; i++)
 			{
-				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
+				//  correct adc values for non-linearities
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i]));
 			}
-			adc_ready = 1;
+
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i] = adc_comp_16b(&(adc16bBuffer[i]));
+				adc16bBuffer[i] = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
 			}
@@ -288,19 +310,25 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-		adc_is_half = 0;
-		if (!is16bitmode)
+		
+		if (adc_resolution == ADC_12_BITS)
 		{
-			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
+//			{
+//				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
+//			}
+
+			for (int i = 0; i<8; i++)
 			{
-				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
+				// First correct adc values for non-linearities
+				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i+8*4]));
 			}
-			adc_ready = 1;
+		
 		} else {
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i+8] = adc_comp_16b(&(adc16bBuffer[i+8]));
+				adc16bBuffer[i+8] = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
 				// Then filter
 				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
 			}
@@ -329,6 +357,22 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 
 		logging_en = 0;
 
+	}
+}
+
+void Adc_start()
+{
+	if (adc_resolution == ADC_12_BITS)
+	{
+		HAL_ADC_Start_DMA(
+		&hadc1,
+		(uint32_t*)(adc12Buffer),
+		8*8);
+	} else {
+		HAL_ADC_Start_DMA(
+		&hadc1,
+		(uint32_t*)(adc16bBuffer),
+		16);
 	}
 }
 
@@ -407,6 +451,8 @@ int main(void)
   memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
 
   HAL_ADCEx_Calibration_Start(&hadc1);
+  Adc_start();
+  busy = 1;
 //  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
 //  {
 //	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
@@ -456,7 +502,7 @@ int main(void)
 
 				tim3_counter=0;
 
-				if (is16bitmode)
+				if (adc_resolution == ADC_16_BITS)
 				{
 
 					if (adc_16b_is_half)
@@ -496,10 +542,10 @@ int main(void)
 //				  {
 //					  ADC1->CR |= ADC_CR_ADSTP;
 //				  } else {
-				  if (!is16bitmode)
-				  {
-					 HAL_ADC_Stop_DMA(&hadc1);
-				  }
+//				  if (!is16bitmode)
+//				  {
+//					 HAL_ADC_Stop_DMA(&hadc1);
+//				  }
 
 
 				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
@@ -513,10 +559,10 @@ int main(void)
 			  if (logging_en && spi_ctrl_isIdle())
 			  {
 
-				  if (!is16bitmode)
-				  {
-					  HAL_ADC_Stop_DMA(&hadc1);
-				  }
+//				  if (!is16bitmode)
+//				  {
+//					  HAL_ADC_Stop_DMA(&hadc1);
+//				  }
 
 				  tim3_counter = 0;
 				  adc_is_half = 0;
@@ -546,8 +592,8 @@ int main(void)
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
 
-				  if (is16bitmode)
-				  {
+//				  if (is16bitmode)
+//				  {
 					  // reset iir
 //					  iir_reset();
 
@@ -562,15 +608,15 @@ int main(void)
 //					  }
 
 
-				  } else {
-					  if (HAL_ADC_Start_DMA(
-							 &hadc1,
-					  		(uint32_t*)(spi_msg_1_ptr->adcData),
-					  		ADC_BUFFERSIZE_SAMPLES) == HAL_OK)
-					  {
-						  NextState = MAIN_LOGGING;
-					  }
-				  }
+//				  } else {
+//					  if (HAL_ADC_Start_DMA(
+//							 &hadc1,
+//					  		(uint32_t*)(spi_msg_1_ptr->adcData),
+//					  		ADC_BUFFERSIZE_SAMPLES) == HAL_OK)
+//					  {
+//						  NextState = MAIN_LOGGING;
+//					  }
+//				  }
 
 				  HAL_TIM_Base_Start_IT(&htim3);
 
@@ -611,7 +657,7 @@ int main(void)
 							  break;
 
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
-							  if (is16bitmode)
+							  if (adc_resolution == ADC_16_BITS)
 							  {
 								  if (adc_16b_is_half)
 								  {
@@ -635,7 +681,7 @@ int main(void)
 
 							  break;
 
-						  case CMD_NOP:
+						  case STM32_CMD_NOP:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 //							  resp.command = CMD_NOP;
 //							  resp.data = CMD_RESP_OK;
@@ -644,7 +690,7 @@ int main(void)
 
 						  default:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
-							  resp.command = CMD_NOP;
+							  resp.command = STM32_CMD_NOP;
 							  resp.data = CMD_RESP_NOK;
 							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 
@@ -665,14 +711,10 @@ int main(void)
 			  {
 				  NextState = MAIN_IDLE;
 				  // Start the ADC if we are in 16 bit mode.
-				  if (is16bitmode)
-				  {
-					  HAL_ADC_Start_DMA(
-					  &hadc1,
-					  (uint32_t*)(adc16bBuffer),
-					  16);
-
-				  }
+//				  if (is16bitmode)
+//				  {
+				  Adc_start();
+//				  }
 
 				  main_exit_config = 0 ;
 				  break;
@@ -710,13 +752,13 @@ int main(void)
 //			  HAL_ADCEx_Calibration_Start(&hadc1);
 
 			  // In 16 bit mode we have already started the ADC. Only do this for 12 bit.
-			  if (!is16bitmode)
-			  {
-				  HAL_ADC_Start_DMA(
-					  &hadc1,
-					  (uint32_t*)(spi_msg_1_ptr->adcData),
-					  ADC_BUFFERSIZE_SAMPLES);
-			  }
+			  // if (!is16bitmode)
+			  // {
+				//   HAL_ADC_Start_DMA(
+				// 	  &hadc1,
+				// 	  (uint32_t*)(spi_msg_1_ptr->adcData),
+				// 	  ADC_BUFFERSIZE_SAMPLES);
+			  // }
 
 
 			  // Wait until first message is sent
@@ -733,7 +775,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr > 2)
+			  if (gpio_result_write_ptr > 1)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
@@ -742,17 +784,17 @@ int main(void)
 //				 {
 //					 HAL_ADC_Stop(&hadc1);
 //				 } else {
-				 if (!is16bitmode)
-				 {
-					 HAL_ADC_Stop_DMA(&hadc1);
+				//  if (!is16bitmode)
+				//  {
+				// 	 HAL_ADC_Stop_DMA(&hadc1);
+				//  }
 				 }
-//				 }
 
 
-				 htim3 = htim3_bak;
-				 HAL_TIM_Base_Init(&htim3);
+				//  htim3 = htim3_bak;
+				//  HAL_TIM_Base_Init(&htim3);
 				 NextState = MAIN_IDLE;
-			  }
+			  // }
 
 		  break;
 
@@ -795,7 +837,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
   RCC_OscInitStruct.PLL.PLLN = 8;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV32;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -848,7 +890,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.NbrOfConversion = 8;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_FALLING;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_79CYCLES_5;
