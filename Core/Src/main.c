@@ -132,6 +132,7 @@ uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
 uint16_t adc12Buffer[8*8];
 uint16_t tbuffer[8];
+uint16_t correctedAdc = 0;
 uint16_t iirFilter[8];
 
 adc_resolution_t adc_resolution = ADC_12_BITS;
@@ -300,9 +301,9 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i] = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
+				correctedAdc = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
 				// Then filter
-				iir_filter(&(adc16bBuffer[i]), &(iirFilter[i]), i);
+				iir_filter(&correctedAdc, &(iirFilter[i]), i);
 			}
 		}
 
@@ -328,9 +329,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
-				adc16bBuffer[i+8] = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
+				correctedAdc = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
 				// Then filter
-				iir_filter(&(adc16bBuffer[i+8]), &(iirFilter[i]), i);
+				iir_filter(&correctedAdc, &(iirFilter[i]), i);
 			}
 		}
 
@@ -417,6 +418,7 @@ int main(void)
   MX_TIM14_Init();
   MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
+
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
@@ -583,7 +585,7 @@ int main(void)
 
 
 //				  ADC_Reinit();
-				  
+
 //
 
 
