@@ -3,7 +3,7 @@
 #include "stdint.h"
 #include "esp32_interface.h"
 
-#define Q 16
+#define Q 15
 #define FIXEDPT_WBITS 16
 
 typedef struct { int32_t x; int32_t y; } lut_t;
