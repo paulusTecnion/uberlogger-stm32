@@ -112,7 +112,19 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
-
+typedef struct   __attribute__((aligned(4)))  {
+    uint8_t msg_no;
+	uint16_t dataLen;
+    uint8_t padding1[11];
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+    union
+    {
+        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
+    };
+    // uint16_t crc;
+} spi_msg_slow_freq_t;
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
@@ -120,6 +132,8 @@ uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
+
+spi_msg_slow_freq_t * spi_msg_slow_freq = (spi_msg_slow_freq_t *)(data_buffer);
 
 
 log_mode_t logMode = LOGMODE_CSV;
@@ -676,7 +690,8 @@ int main(void)
 									  // So we are now still writing in spi_msg_2.
 									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
 								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq, sizeof(spi_msg_slow_freq_t));
 								  }
 							  }
 
