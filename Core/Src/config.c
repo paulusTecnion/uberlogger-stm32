@@ -360,6 +360,17 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	iir_set_samplefreq(sampleFreq);
 
 
+//	if (sampleFreq <= ADC_SAMPLE_RATE_250Hz)
+//	{
+//		spi_msg_slow_freq_1->msg_no = 0xFA;
+//
+//		spi_msg_slow_freq_2->msg_no = 0xAB;
+//	} else {
+//	  spi_msg_1_ptr->startByte[0] = 0xFA;
+//	  spi_msg_1_ptr->startByte[1] = 0xFB;
+//	  spi_msg_2_ptr->stopByte[0]= 0xFB;
+//	  spi_msg_2_ptr->stopByte[1]= 0xFA;
+//	}
 
 	 switch(sampleFreq)
 	 {

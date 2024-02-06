@@ -86,45 +86,45 @@ s_date_time_t current_date_time;
 uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
-typedef struct {
-    uint8_t startByte[START_STOP_NUM_BYTES];
-    uint16_t dataLen;
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-    uint8_t padding3;
-    uint8_t padding4;
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    union {
-    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-} spi_msg_1_t;
-
-typedef struct {
-    union {
-    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    uint8_t padding1;
-    uint8_t padding2;
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-    uint16_t dataLen;
-    uint8_t stopByte[START_STOP_NUM_BYTES];
-} spi_msg_2_t;
-
-typedef struct   __attribute__((aligned(4)))  {
-    uint8_t msg_no;
-	uint16_t dataLen;
-    uint8_t padding1[11];
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
-    union
-    {
-        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
-        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
-    };
-    // uint16_t crc;
-} spi_msg_slow_freq_t;
+//typedef struct {
+//    uint8_t startByte[START_STOP_NUM_BYTES];
+//    uint16_t dataLen;
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+//    uint8_t padding3;
+//    uint8_t padding4;
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+//    union {
+//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+//    };
+//} spi_msg_1_t;
+//
+//typedef struct {
+//    union {
+//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+//    };
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+//    uint8_t padding1;
+//    uint8_t padding2;
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+//    uint16_t dataLen;
+//    uint8_t stopByte[START_STOP_NUM_BYTES];
+//} spi_msg_2_t;
+//
+//typedef struct   __attribute__((aligned(4)))  {
+//    uint8_t msg_no;
+//	uint16_t dataLen;
+//    uint8_t padding1[11];
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+//    union
+//    {
+//        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+//        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
+//    };
+//    // uint16_t crc;
+//} spi_msg_slow_freq_t;
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
@@ -133,8 +133,8 @@ spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
 spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
-spi_msg_slow_freq_t * spi_msg_slow_freq = (spi_msg_slow_freq_t *)(data_buffer);
-
+spi_msg_slow_freq_t * spi_msg_slow_freq_1 = (spi_msg_slow_freq_t *)(data_buffer);
+spi_msg_slow_freq_t * spi_msg_slow_freq_2 = (spi_msg_slow_freq_t *)(data_buffer + sizeof(spi_msg_slow_freq_t));
 
 log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -236,13 +236,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		if (!gpio_is_half)
 		{
 			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
+//			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			spi_msg_slow_freq_1->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_slow_freq_1->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+//			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
+			spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr +1 ;
 		} else { // If not, we fill the second part
-			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
+//			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			spi_msg_slow_freq_2->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_slow_freq_2->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+//			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
+			spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr +1 ;
 		}
 //
 
@@ -260,11 +266,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			if (!adc_is_half)
 			{
         // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode. 
-				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+//				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			} else {
-				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+//				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
-    }
+		}
 
 
 		tim3_counter++;
@@ -447,10 +455,7 @@ int main(void)
   // Backup current adc settings
   hadc1_bak = hadc1;
 
-  spi_msg_1_ptr->startByte[0] = 0xFA;
-  spi_msg_1_ptr->startByte[1] = 0xFB;
-  spi_msg_2_ptr->stopByte[0]= 0xFB;
-  spi_msg_2_ptr->stopByte[1]= 0xFA;
+
 
   iir_init();
 
@@ -465,6 +470,11 @@ int main(void)
 
   memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
   memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
+
+  spi_msg_slow_freq_1->msg_no = 0xFA;
+  spi_msg_slow_freq_2->msg_no = 0xAB;
+
+
 
   HAL_ADCEx_Calibration_Start(&hadc1);
   Adc_start();
@@ -534,9 +544,11 @@ int main(void)
 					if (adc_is_half)
 					{
 	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 					}
 				}
 
@@ -688,10 +700,11 @@ int main(void)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 								  } else {
 //									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq, sizeof(spi_msg_slow_freq_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 								  }
 							  }
 

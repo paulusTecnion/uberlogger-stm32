@@ -67,7 +67,6 @@ typedef struct {
 
 
 
-
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -137,6 +136,48 @@ void ADC_Reinit();
 #define ADC_BUFFERSIZE_BYTES ADC_BUFFERSIZE_SAMPLES*2
 #define GPIO_IO_BUFFERIZE_BYTES GPIO_BYTES_PER_SPI_TRANSACTION*2
 #define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
+
+
+typedef struct {
+    uint8_t startByte[START_STOP_NUM_BYTES];
+    uint16_t dataLen;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint8_t padding3;
+    uint8_t padding4;
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
+} spi_msg_1_t;
+
+typedef struct {
+    union {
+    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+    };
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+    uint8_t padding1;
+    uint8_t padding2;
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+    uint16_t dataLen;
+    uint8_t stopByte[START_STOP_NUM_BYTES];
+} spi_msg_2_t;
+
+typedef struct   __attribute__((aligned(4))) {
+    uint8_t msg_no;
+	uint16_t dataLen;
+    uint8_t padding1[11];
+    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
+    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+    union
+    {
+        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
+    };
+    // uint16_t crc;
+} spi_msg_slow_freq_t;
+
 
 /* USER CODE END Private defines */
 
