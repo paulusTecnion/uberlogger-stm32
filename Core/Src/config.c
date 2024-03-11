@@ -169,7 +169,7 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 	case LOGMODE_CSV:
 	case LOGMODE_RAW:
 		logMode = logtype;
-		_data_lines_per_transaction = data_lines_per_transaction;
+//		_data_lines_per_transaction = data_lines_per_transaction;
 		return 0;
 		break;
 
