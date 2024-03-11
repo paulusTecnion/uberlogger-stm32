@@ -129,12 +129,12 @@ uint8_t tim14_event = 0;
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 
-spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+//spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
-spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
+//spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
-spi_msg_slow_freq_t * spi_msg_slow_freq_1 = (spi_msg_slow_freq_t *)(data_buffer);
-spi_msg_slow_freq_t * spi_msg_slow_freq_2 = (spi_msg_slow_freq_t *)(data_buffer + sizeof(spi_msg_slow_freq_t));
+spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
+spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
 
 log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -258,9 +258,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		{
 			if (!adc_16b_is_half)
 			{
-				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			} else {
-				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
 		} else {
 			if (!adc_is_half)
@@ -444,7 +444,7 @@ int main(void)
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
-  adc_data_u16 = (uint16_t*)spi_msg_1_ptr->adcData;
+  adc_data_u16 = (uint16_t*)spi_msg_slow_freq_1->adcData;
 
   // Enable TIM1 interrupt
 //  TIM1->DIER |= TIM_DIER_UIE;
@@ -468,12 +468,16 @@ int main(void)
   CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
   CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
-  memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
-  memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
+  memset(spi_msg_slow_freq_1->adcData, 0, sizeof(spi_msg_slow_freq_1->adcData));
+  memset(spi_msg_slow_freq_2->adcData, 0, sizeof(spi_msg_slow_freq_2->adcData));
 
-  spi_msg_slow_freq_1->msg_no = 0xFA;
-  spi_msg_slow_freq_2->msg_no = 0xAB;
+  memset(data_buffer, 0, sizeof(data_buffer));
 
+  spi_msg_slow_freq_1->startByte[0] = 0xFA;
+  spi_msg_slow_freq_1->startByte[1] = 0xFB;
+
+  spi_msg_slow_freq_2->stopByte[0] = 0xFB;
+  spi_msg_slow_freq_2->stopByte[1] = 0xFA;
 
 
   HAL_ADCEx_Calibration_Start(&hadc1);
@@ -534,9 +538,9 @@ int main(void)
 					if (adc_16b_is_half)
 					{
 	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
 					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 					}
 
 				} else {
@@ -544,44 +548,37 @@ int main(void)
 					if (adc_is_half)
 					{
 	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-//						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 					} else {
-//						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 					}
 				}
 
 				adc_ready = 0;
 				gpio_ready = 0;
+
 			}
 
-			  if (!logging_en || overrun)
-			  {
+	  	  if (!logging_en || overrun)
+		  {
 //				  if (overrun)
 //				  {
 //					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
 //				  }
 //				  overrun =0;
-				  // reset the this variable to 0, since we expect that a "
+			  // reset the this variable to 0, since we expect that a "
 
-				  HAL_TIM_Base_Stop_IT(&htim3);
-//				  if (is16bitmode)
-//				  {
-//					  ADC1->CR |= ADC_CR_ADSTP;
-//				  } else {
-//				  if (!is16bitmode)
-//				  {
-//					 HAL_ADC_Stop_DMA(&hadc1);
-//				  }
+			  HAL_TIM_Base_Stop_IT(&htim3);
 
+			  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
+			  HAL_Delay(50);
+			  // Set ADC to single conversion measure mode
+			  NextState = MAIN_IDLE;
+		  }
+		  break;
 
-				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
-				  HAL_Delay(50);
-				  // Set ADC to single conversion measure mode
-				  NextState = MAIN_IDLE;
-			  }
-			  break;
 
 		  case MAIN_IDLE:
 			  if (logging_en && spi_ctrl_isIdle())
@@ -691,20 +688,20 @@ int main(void)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
 								  }
 							  } else {
 								  if (adc_is_half)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-//									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 								  } else {
-//									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 								  }
 							  }
 
@@ -805,7 +802,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr > 1)
+			  if (gpio_result_write_ptr >= 1)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
