@@ -16,6 +16,7 @@ extern log_mode_t logMode;
 extern uint8_t _data_lines_per_transaction;
 extern adc_resolution_t adc_resolution;
 extern adc_channel_range_t adc_voltage_range_g;
+extern uint8_t spi_lines_per_transaction;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -374,6 +375,19 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 	 switch(sampleFreq)
 	 {
+
+		 case ADC_SAMPLE_RATE_EVERY_60S:
+				 spi_lines_per_transaction = 1;
+				 htim3.Init.Prescaler = 60000-1;
+				 htim3.Init.Period = 64000 ;
+		break;
+
+		 case ADC_SAMPLE_RATE_EVERY_10S:
+			 spi_lines_per_transaction = 1;
+			 htim3.Init.Prescaler = 10000-1;
+			 htim3.Init.Period = 64000 ;
+		break;
+
 		 case ADC_SAMPLE_RATE_1Hz:
 			 // Reconfig the timer
 
