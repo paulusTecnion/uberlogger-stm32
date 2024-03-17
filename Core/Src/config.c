@@ -84,20 +84,20 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				break;
 
-			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
-				  resp.command = STM32_CMD_SET_ADC_CHANNELS_ENABLED;
-
-				  if (!Config_Set_Adc_channels(cmd->data))
-				  {
-					  resp.data = CMD_RESP_OK;
-
-				  } else {
-					  resp.data = CMD_RESP_NOK;
-
-				  }
-
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
-				  break;
+//			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
+//				  resp.command = STM32_CMD_SET_ADC_CHANNELS_ENABLED;
+//
+//				  if (!Config_Set_Adc_channels(cmd->data))
+//				  {
+//					  resp.data = CMD_RESP_OK;
+//
+//				  } else {
+//					  resp.data = CMD_RESP_NOK;
+//
+//				  }
+//
+//				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+//				  break;
 
 			  case STM32_CMD_SET_DATETIME:
 				  resp.command = STM32_CMD_SET_DATETIME;
@@ -376,17 +376,17 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	 switch(sampleFreq)
 	 {
 
-		 case ADC_SAMPLE_RATE_EVERY_60S:
-				 spi_lines_per_transaction = 1;
-				 htim3.Init.Prescaler = 60000-1;
-				 htim3.Init.Period = 64000 ;
-		break;
-
-		 case ADC_SAMPLE_RATE_EVERY_10S:
-			 spi_lines_per_transaction = 1;
-			 htim3.Init.Prescaler = 10000-1;
-			 htim3.Init.Period = 64000 ;
-		break;
+//		 case ADC_SAMPLE_RATE_EVERY_60S:
+//				 spi_lines_per_transaction = 1;
+//				 htim3.Init.Prescaler = 60000-1;
+//				 htim3.Init.Period = 64000 ;
+//		break;
+//
+//		 case ADC_SAMPLE_RATE_EVERY_10S:
+//			 spi_lines_per_transaction = 1;
+//			 htim3.Init.Prescaler = 10000-1;
+//			 htim3.Init.Period = 64000 ;
+//		break;
 
 		 case ADC_SAMPLE_RATE_1Hz:
 			 // Reconfig the timer

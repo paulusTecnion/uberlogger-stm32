@@ -54,7 +54,8 @@ void iir_reset()
 
 uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 {
-	if (	sampleFreq >= ADC_SAMPLE_RATE_EVERY_60S &&
+//	if (	sampleFreq >= ADC_SAMPLE_RATE_EVERY_60S &&
+	if (	sampleFreq >= ADC_SAMPLE_RATE_1Hz &&
 			sampleFreq <= ADC_SAMPLE_RATE_250Hz)
 	{
 		coeff_index = sampleFreq;
