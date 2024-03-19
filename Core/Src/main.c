@@ -76,7 +76,7 @@ volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
 
 static uint8_t adc_is_half = 0, adc_16b_is_half=0;
-
+static uint8_t _singleshot = 0;
 static RTC_TimeTypeDef current_time;
 static RTC_DateTypeDef current_date;
 
@@ -299,6 +299,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
+	  busy = 0; // reset interrupt timeout
 }
 
 
@@ -684,23 +685,24 @@ int main(void)
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
 							  if (adc_resolution == ADC_16_BITS)
 							  {
-								  if (adc_16b_is_half)
+								  if (!adc_16b_is_half || _singleshot)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-								  } else {
 									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+									  _singleshot = 0;
+								  } else {
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 								  }
 							  } else {
-								  if (adc_is_half)
+								  if (!adc_is_half || _singleshot)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
 //									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 //									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 								  }
 							  }
@@ -772,6 +774,7 @@ int main(void)
 			  adc_ready = 0;
 			  gpio_result_write_ptr = 0;
 			  time_result_write_ptr = 0;
+			  _singleshot = 1;
 
 			  TIM3->CNT = 0;
 
