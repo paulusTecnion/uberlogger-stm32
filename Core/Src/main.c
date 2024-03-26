@@ -76,7 +76,7 @@ volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
 
 static uint8_t adc_is_half = 0, adc_16b_is_half=0;
-
+static uint8_t _singleshot = 0;
 static RTC_TimeTypeDef current_time;
 static RTC_DateTypeDef current_date;
 
@@ -86,41 +86,55 @@ s_date_time_t current_date_time;
 uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
-typedef struct {
-    uint8_t startByte[START_STOP_NUM_BYTES];
-    uint16_t dataLen;
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-    uint8_t padding3;
-    uint8_t padding4;
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    union {
-    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-} spi_msg_1_t;
-
-typedef struct {
-    union {
-    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    uint8_t padding1;
-    uint8_t padding2;
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-    uint16_t dataLen;
-    uint8_t stopByte[START_STOP_NUM_BYTES];
-} spi_msg_2_t;
-
-
+//typedef struct {
+//    uint8_t startByte[START_STOP_NUM_BYTES];
+//    uint16_t dataLen;
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+//    uint8_t padding3;
+//    uint8_t padding4;
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+//    union {
+//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+//    };
+//} spi_msg_1_t;
+//
+//typedef struct {
+//    union {
+//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
+//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
+//    };
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
+//    uint8_t padding1;
+//    uint8_t padding2;
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
+//    uint16_t dataLen;
+//    uint8_t stopByte[START_STOP_NUM_BYTES];
+//} spi_msg_2_t;
+//
+//typedef struct   __attribute__((aligned(4)))  {
+//    uint8_t msg_no;
+//	uint16_t dataLen;
+//    uint8_t padding1[11];
+//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
+//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
+//    union
+//    {
+//        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
+//        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
+//    };
+//    // uint16_t crc;
+//} spi_msg_slow_freq_t;
 
 
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 
-spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
+//spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
-spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
+//spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
+spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
+spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
 
 log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -222,13 +236,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		if (!gpio_is_half)
 		{
 			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
+//			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			spi_msg_slow_freq_1->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_slow_freq_1->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+//			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
+			spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr +1 ;
 		} else { // If not, we fill the second part
-			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
+//			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+			spi_msg_slow_freq_2->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
+//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+			memcpy((void*)&spi_msg_slow_freq_2->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
+//			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
+			spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr +1 ;
 		}
 //
 
@@ -238,19 +258,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		{
 			if (!adc_16b_is_half)
 			{
-				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			} else {
-				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
 		} else {
 			if (!adc_is_half)
 			{
         // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode. 
-				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+//				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			} else {
-				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+//				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
+				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
 			}
-    }
+		}
 
 
 		tim3_counter++;
@@ -277,6 +299,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
+	  busy = 0; // reset interrupt timeout
 }
 
 
@@ -422,7 +445,7 @@ int main(void)
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
-  adc_data_u16 = (uint16_t*)spi_msg_1_ptr->adcData;
+  adc_data_u16 = (uint16_t*)spi_msg_slow_freq_1->adcData;
 
   // Enable TIM1 interrupt
 //  TIM1->DIER |= TIM_DIER_UIE;
@@ -433,10 +456,7 @@ int main(void)
   // Backup current adc settings
   hadc1_bak = hadc1;
 
-  spi_msg_1_ptr->startByte[0] = 0xFA;
-  spi_msg_1_ptr->startByte[1] = 0xFB;
-  spi_msg_2_ptr->stopByte[0]= 0xFB;
-  spi_msg_2_ptr->stopByte[1]= 0xFA;
+
 
   iir_init();
 
@@ -449,8 +469,17 @@ int main(void)
   CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
   CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
-  memset(spi_msg_1_ptr->adcData, 0, sizeof(spi_msg_1_ptr->adcData));
-  memset(spi_msg_2_ptr->adcData, 0, sizeof(spi_msg_2_ptr->adcData));
+  memset(spi_msg_slow_freq_1->adcData, 0, sizeof(spi_msg_slow_freq_1->adcData));
+  memset(spi_msg_slow_freq_2->adcData, 0, sizeof(spi_msg_slow_freq_2->adcData));
+
+  memset(data_buffer, 0, sizeof(data_buffer));
+
+  spi_msg_slow_freq_1->startByte[0] = 0xFA;
+  spi_msg_slow_freq_1->startByte[1] = 0xFB;
+
+  spi_msg_slow_freq_2->stopByte[0] = 0xFB;
+  spi_msg_slow_freq_2->stopByte[1] = 0xFA;
+
 
   HAL_ADCEx_Calibration_Start(&hadc1);
   Adc_start();
@@ -510,9 +539,9 @@ int main(void)
 					if (adc_16b_is_half)
 					{
 	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
 					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 					}
 
 				} else {
@@ -520,42 +549,37 @@ int main(void)
 					if (adc_is_half)
 					{
 	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
+//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 					}
 				}
 
 				adc_ready = 0;
 				gpio_ready = 0;
+
 			}
 
-			  if (!logging_en || overrun)
-			  {
+	  	  if (!logging_en || overrun)
+		  {
 //				  if (overrun)
 //				  {
 //					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
 //				  }
 //				  overrun =0;
-				  // reset the this variable to 0, since we expect that a "
+			  // reset the this variable to 0, since we expect that a "
 
-				  HAL_TIM_Base_Stop_IT(&htim3);
-//				  if (is16bitmode)
-//				  {
-//					  ADC1->CR |= ADC_CR_ADSTP;
-//				  } else {
-//				  if (!is16bitmode)
-//				  {
-//					 HAL_ADC_Stop_DMA(&hadc1);
-//				  }
+			  HAL_TIM_Base_Stop_IT(&htim3);
 
+			  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
+			  HAL_Delay(50);
+			  // Set ADC to single conversion measure mode
+			  NextState = MAIN_IDLE;
+		  }
+		  break;
 
-				  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
-				  HAL_Delay(50);
-				  // Set ADC to single conversion measure mode
-				  NextState = MAIN_IDLE;
-			  }
-			  break;
 
 		  case MAIN_IDLE:
 			  if (logging_en && spi_ctrl_isIdle())
@@ -661,22 +685,25 @@ int main(void)
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
 							  if (adc_resolution == ADC_16_BITS)
 							  {
-								  if (adc_16b_is_half)
+								  if (!adc_16b_is_half || _singleshot)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+									  _singleshot = 0;
 								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
 								  }
 							  } else {
-								  if (adc_is_half)
+								  if (!adc_is_half || _singleshot)
 								  {
 									  // adc_is_half == 1 means the last message sent was spi_msg_1
 									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_2_ptr, sizeof(spi_msg_2_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
 								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_1_ptr, sizeof(spi_msg_1_t));
+									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
+//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
 								  }
 							  }
 
@@ -747,6 +774,7 @@ int main(void)
 			  adc_ready = 0;
 			  gpio_result_write_ptr = 0;
 			  time_result_write_ptr = 0;
+			  _singleshot = 1;
 
 			  TIM3->CNT = 0;
 
@@ -777,7 +805,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr > 1)
+			  if (gpio_result_write_ptr >= 1)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
@@ -1018,32 +1046,33 @@ static void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
-
+  // Check if RTC was already set before. If not, then set it with default value.
+  if (__HAL_RTC_GET_FLAG(&hrtc, RTC_FLAG_INITS) == RESET) {
   /* USER CODE END Check_RTC_BKUP */
 
-  /** Initialize RTC and set the Time and Date
-  */
-  sTime.Hours = 0x12;
-  sTime.Minutes = 0x0;
-  sTime.Seconds = 0x0;
-  sTime.SubSeconds = 0x0;
-  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-//  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
-  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-  sDate.Month = RTC_MONTH_FEBRUARY;
-  sDate.Date = 0x1;
-  sDate.Year = 0x17;
+    /** Initialize RTC and set the Time and Date
+    */
+    sTime.Hours = 12;
+    sTime.Minutes = 0;
+    sTime.Seconds = 0;
+    sTime.SubSeconds = 0;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+    sDate.Month = RTC_MONTH_FEBRUARY;
+    sDate.Date = 1;
+    sDate.Year = 24;
 
-//  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+    {
+      Error_Handler();
+    }
   /* USER CODE BEGIN RTC_Init 2 */
-
+  }
   /* USER CODE END RTC_Init 2 */
 
 }
