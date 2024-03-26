@@ -16,6 +16,7 @@ extern log_mode_t logMode;
 extern uint8_t _data_lines_per_transaction;
 extern adc_resolution_t adc_resolution;
 extern adc_channel_range_t adc_voltage_range_g;
+extern uint8_t spi_lines_per_transaction;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -83,20 +84,20 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				break;
 
-			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
-				  resp.command = STM32_CMD_SET_ADC_CHANNELS_ENABLED;
-
-				  if (!Config_Set_Adc_channels(cmd->data))
-				  {
-					  resp.data = CMD_RESP_OK;
-
-				  } else {
-					  resp.data = CMD_RESP_NOK;
-
-				  }
-
-				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
-				  break;
+//			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
+//				  resp.command = STM32_CMD_SET_ADC_CHANNELS_ENABLED;
+//
+//				  if (!Config_Set_Adc_channels(cmd->data))
+//				  {
+//					  resp.data = CMD_RESP_OK;
+//
+//				  } else {
+//					  resp.data = CMD_RESP_NOK;
+//
+//				  }
+//
+//				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+//				  break;
 
 			  case STM32_CMD_SET_DATETIME:
 				  resp.command = STM32_CMD_SET_DATETIME;
@@ -168,7 +169,7 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 	case LOGMODE_CSV:
 	case LOGMODE_RAW:
 		logMode = logtype;
-		_data_lines_per_transaction = data_lines_per_transaction;
+//		_data_lines_per_transaction = data_lines_per_transaction;
 		return 0;
 		break;
 
@@ -360,187 +361,208 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	iir_set_samplefreq(sampleFreq);
 
 
+//	if (sampleFreq <= ADC_SAMPLE_RATE_250Hz)
+//	{
+//		spi_msg_slow_freq_1->msg_no = 0xFA;
+//
+//		spi_msg_slow_freq_2->msg_no = 0xAB;
+//	} else {
+//	  spi_msg_1_ptr->startByte[0] = 0xFA;
+//	  spi_msg_1_ptr->startByte[1] = 0xFB;
+//	  spi_msg_2_ptr->stopByte[0]= 0xFB;
+//	  spi_msg_2_ptr->stopByte[1]= 0xFA;
+//	}
 
 	 switch(sampleFreq)
 	 {
-	 case ADC_SAMPLE_RATE_1Hz:
-		 // Reconfig the timer
 
-
-		 htim3.Init.Prescaler = 1000-1;
-		 htim3.Init.Period = 64000 ;
-
-
-		 break;
-
-	 case ADC_SAMPLE_RATE_2Hz:
-	 		 // Reconfig the timer
-
-
-		 htim3.Init.Prescaler = 500-1;
-		 htim3.Init.Period = 64000 ;
-
-
-	 	break;
-
-	 case ADC_SAMPLE_RATE_5Hz:
-
-
-		 htim3.Init.Prescaler = 200-1;
-		 htim3.Init.Period = 64000 ;
-		 	break;
-
-	 case ADC_SAMPLE_RATE_10Hz:
-
-
-		 htim3.Init.Prescaler = 100-1;
-		 htim3.Init.Period = 64000;
-
-
-		 break;
-
-	 case ADC_SAMPLE_RATE_25Hz:
-
-
-		htim3.Init.Prescaler = 100-1;
-		htim3.Init.Period = 25600;
-		 break;
-
-	 case ADC_SAMPLE_RATE_50Hz:
-
-		htim3.Init.Prescaler = 100-1;
-		htim3.Init.Period = 12800;
-//		htim3.Init.Prescaler = 639;
-//		htim3.Init.Period = 1000;
-
-		 break;
-
-	 case 	ADC_SAMPLE_RATE_100Hz:
-//		if (is16bitmode)
-//		{
-
-			// prescale 16
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
-//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
-//		}
-
-//		htim3.Init.Prescaler = 10-1;
-//		htim3.Init.Period = 64000;
-		htim3.Init.Prescaler = 639;
-		htim3.Init.Period = 1000;
-		 break;
-
-	 case 	ADC_SAMPLE_RATE_250Hz:
-//		if (adc_resolution == 1)
-//		{
-			// prescale 8
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
-//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
-//		}
-
-		htim3.Init.Prescaler = 255;
-		htim3.Init.Period = 1000;
-
-		 break;
-
-//	 case ADC_SAMPLE_RATE_500Hz:
-//		if (use16bit)
-//		{
-//			// prescale 64
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
-//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
-//		}
+//		 case ADC_SAMPLE_RATE_EVERY_60S:
+//				 spi_lines_per_transaction = 1;
+//				 htim3.Init.Prescaler = 60000-1;
+//				 htim3.Init.Period = 64000 ;
+//		break;
 //
-//		htim3.Init.Prescaler = 10-1;
-//		htim3.Init.Period = 12800;
-//
-//
-//		 break;
+//		 case ADC_SAMPLE_RATE_EVERY_10S:
+//			 spi_lines_per_transaction = 1;
+//			 htim3.Init.Prescaler = 10000-1;
+//			 htim3.Init.Period = 64000 ;
+//		break;
 
-//	 case ADC_SAMPLE_RATE_1000Hz:
-//		 htim3.Init.Prescaler = 1-1;
-//		 htim3.Init.Period = 64000-1;
-//
-//	 break;
+		 case ADC_SAMPLE_RATE_1Hz:
+			 // Reconfig the timer
 
-//	 case ADC_SAMPLE_RATE_2000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 64000;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_4000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 16000;
-//
-//		 break;
-
-//	 case ADC_SAMPLE_RATE_2500Hz:
-//			 htim3.Init.Prescaler = 2-1;
-//			 htim3.Init.Period = 12800-1;
-//
-//			 break;
+			 spi_lines_per_transaction = 1;
+			 htim3.Init.Prescaler = 1000-1;
+			 htim3.Init.Period = 64000 ;
 
 
-//	 case ADC_SAMPLE_RATE_5000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 12800;
-//
-//		 break;
+			 break;
 
-//	 case ADC_SAMPLE_RATE_8000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 8000;
-//
-//		 break;
-//	 case ADC_SAMPLE_RATE_10000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 6400;
-//
-//		 break;
-//	 case ADC_SAMPLE_RATE_20000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 3200;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_40000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 1600;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_50000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 1280;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_100000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 640;
-//
-//		 break;
+		 case ADC_SAMPLE_RATE_2Hz:
+				 // Reconfig the timer
 
-//	 case ADC_SAMPLE_RATE_250000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 256;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_500000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 128;
-//
-//		 break;
-//
-//	 case ADC_SAMPLE_RATE_1000000Hz:
-//		 htim3.Init.Prescaler = 1;
-//		 htim3.Init.Period = 64;
-//
-//		 break;
+			 spi_lines_per_transaction = 2;
+			 htim3.Init.Prescaler = 500-1;
+			 htim3.Init.Period = 64000 ;
+
+
+			break;
+
+		 case ADC_SAMPLE_RATE_5Hz:
+
+			 spi_lines_per_transaction = 5;
+			 htim3.Init.Prescaler = 200-1;
+			 htim3.Init.Period = 64000 ;
+				break;
+
+		 case ADC_SAMPLE_RATE_10Hz:
+
+			 spi_lines_per_transaction = 10;
+			 htim3.Init.Prescaler = 100-1;
+			 htim3.Init.Period = 64000;
+
+
+			 break;
+
+		 case ADC_SAMPLE_RATE_25Hz:
+
+			 spi_lines_per_transaction = 25;
+			htim3.Init.Prescaler = 100-1;
+			htim3.Init.Period = 25600;
+			 break;
+
+		 case ADC_SAMPLE_RATE_50Hz:
+			 spi_lines_per_transaction= 50;
+			htim3.Init.Prescaler = 100-1;
+			htim3.Init.Period = 12800;
+	//		htim3.Init.Prescaler = 639;
+	//		htim3.Init.Period = 1000;
+
+			 break;
+
+		 case 	ADC_SAMPLE_RATE_100Hz:
+			 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+	//		if (is16bitmode)
+	//		{
+
+				// prescale 16
+	//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_0;
+	//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_1;
+	//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
+	//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
+	//		}
+
+	//		htim3.Init.Prescaler = 10-1;
+	//		htim3.Init.Period = 64000;
+			htim3.Init.Prescaler = 639;
+			htim3.Init.Period = 1000;
+			 break;
+
+		 case 	ADC_SAMPLE_RATE_250Hz:
+			 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+	//		if (adc_resolution == 1)
+	//		{
+				// prescale 8
+	//			ADC1_COMMON->CCR  |= ADC_CCR_PRESC_2;
+	//			hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
+	//		}
+
+			htim3.Init.Prescaler = 255;
+			htim3.Init.Period = 1000;
+
+			 break;
+
+	//	 case ADC_SAMPLE_RATE_500Hz:
+	//		 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+	//		htim3.Init.Prescaler = 127;
+	//		htim3.Init.Period = 1000;
+	//
+	//
+	//		 break;
+
+	//	 case ADC_SAMPLE_RATE_1000Hz:
+	//		 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+	//		 htim3.Init.Prescaler = 63;
+	//		 htim3.Init.Period = 1000;
+	//
+	//	 break;
+
+	//	 case ADC_SAMPLE_RATE_2000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 64000;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_4000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 16000;
+	//
+	//		 break;
+
+	//	 case ADC_SAMPLE_RATE_2500Hz:
+	//			 htim3.Init.Prescaler = 2-1;
+	//			 htim3.Init.Period = 12800-1;
+	//
+	//			 break;
+
+
+	//	 case ADC_SAMPLE_RATE_5000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 12800;
+	//
+	//		 break;
+
+	//	 case ADC_SAMPLE_RATE_8000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 8000;
+	//
+	//		 break;
+	//	 case ADC_SAMPLE_RATE_10000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 6400;
+	//
+	//		 break;
+	//	 case ADC_SAMPLE_RATE_20000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 3200;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_40000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 1600;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_50000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 1280;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_100000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 640;
+	//
+	//		 break;
+
+	//	 case ADC_SAMPLE_RATE_250000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 256;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_500000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 128;
+	//
+	//		 break;
+	//
+	//	 case ADC_SAMPLE_RATE_1000000Hz:
+	//		 htim3.Init.Prescaler = 1;
+	//		 htim3.Init.Period = 64;
+	//
+	//		 break;
 		 // Unknown rate
 	 default:
 	 	return 1;
