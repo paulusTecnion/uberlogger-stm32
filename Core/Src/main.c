@@ -526,10 +526,10 @@ int main(void)
 	//			gpio_result_write_ptr = 0;
 	//			time_result_write_ptr = 0;
 				// Half way we have the pointers start at the beginning
-				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-				{
-					overrun = 1;
-				}
+//				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
+//				{
+//					overrun = 1;
+//				}
 
 				tim3_counter=0;
 
@@ -774,7 +774,7 @@ int main(void)
 			  adc_ready = 0;
 			  gpio_result_write_ptr = 0;
 			  time_result_write_ptr = 0;
-			  _singleshot = 1;
+        _singleshot = 1;
 
 			  TIM3->CNT = 0;
 
@@ -805,7 +805,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr >= 1)
+			  if (gpio_result_write_ptr >= 1 && adc_ready)
 			  {
 				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
 
