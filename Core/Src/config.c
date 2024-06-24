@@ -341,52 +341,18 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
 		hadc1.Init.ContinuousConvMode = ENABLE;
 	 }
-	//  else {
-	// 	 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
-	// 	  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-	// 	  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-	// 	  hadc1.Init.ContinuousConvMode = DISABLE;
-	//  }
-
-
-	 // always set prescaler to 32, except when in 16 bit mode and having 100Hz or 250 Hz logging rate
-//	 if (!(is16bitmode && (sampleFreq != ADC_SAMPLE_RATE_100Hz || sampleFreq != ADC_SAMPLE_RATE_250Hz)))
-//	 {
-//		 // Set to prescaler 32. See page 332 of tech reference
-//		ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
-//	 }
-
 	 // set the sample frequency for the iir filter
+	 if (sampleFreq < ADC_SAMPLE_RATE_1Hz)
+	 {
+		 sampleFreq = ADC_SAMPLE_RATE_25Hz;
+	 }
 
 	iir_set_samplefreq(sampleFreq);
 
 
-//	if (sampleFreq <= ADC_SAMPLE_RATE_250Hz)
-//	{
-//		spi_msg_slow_freq_1->msg_no = 0xFA;
-//
-//		spi_msg_slow_freq_2->msg_no = 0xAB;
-//	} else {
-//	  spi_msg_1_ptr->startByte[0] = 0xFA;
-//	  spi_msg_1_ptr->startByte[1] = 0xFB;
-//	  spi_msg_2_ptr->stopByte[0]= 0xFB;
-//	  spi_msg_2_ptr->stopByte[1]= 0xFA;
-//	}
-
 	 switch(sampleFreq)
 	 {
 
-//		 case ADC_SAMPLE_RATE_EVERY_60S:
-//				 spi_lines_per_transaction = 1;
-//				 htim3.Init.Prescaler = 60000-1;
-//				 htim3.Init.Period = 64000 ;
-//		break;
-//
-//		 case ADC_SAMPLE_RATE_EVERY_10S:
-//			 spi_lines_per_transaction = 1;
-//			 htim3.Init.Prescaler = 10000-1;
-//			 htim3.Init.Period = 64000 ;
-//		break;
 
 		 case ADC_SAMPLE_RATE_1Hz:
 			 // Reconfig the timer
@@ -424,7 +390,13 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 			 break;
 
+		 case ADC_SAMPLE_RATE_EVERY_3600S:
+		 case ADC_SAMPLE_RATE_EVERY_600S:
+		 case ADC_SAMPLE_RATE_EVERY_300S:
+		 case ADC_SAMPLE_RATE_EVERY_60S:
+		 case ADC_SAMPLE_RATE_EVERY_10S:
 		 case ADC_SAMPLE_RATE_25Hz:
+
 
 			 spi_lines_per_transaction = 25;
 			htim3.Init.Prescaler = 100-1;
