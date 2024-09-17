@@ -74,9 +74,14 @@ uint8_t main_exit_config = 0;
 volatile uint16_t data_buffer_write_ptr = 0;
 volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
+volatile uint16_t ext_trigger_input = DIGITAL_IN_0_Pin;
+uint8_t ext_trigger_input_value = 0;
 
 static uint8_t adc_is_half = 0, adc_16b_is_half=0;
 static uint8_t _singleshot = 0;
+uint8_t _trigger_mode = TRIGGER_MODE_CONTINUOUS; // indicates if trigger mode is disabled (TRIGGER_MODE_CONTINUOUS) or by external trigger (TRIGGER_MODE_EXTERNAL)
+uint32_t _debounce_time_ext_input = 0;
+uint32_t _debounce_prev_time = 0 ;
 static RTC_TimeTypeDef current_time;
 static RTC_DateTypeDef current_date;
 
@@ -504,6 +509,10 @@ int main(void)
 
 	  busy = 0; // reset interrupt timeout
 
+	  // forward trigger input to esp32
+	  ext_trigger_input_value = HAL_GPIO_ReadPin(GPIOB, ext_trigger_input);
+	  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
+
 	  // if (is16bitmode)
 	  // {
 		//   memcpy(tbuffer, adc16bBuffer, 16);
@@ -519,8 +528,41 @@ int main(void)
 
 	  switch(MainState)
 	  {
+	  	  case MAIN_WAIT_FOR_TRIGGER:
+
+
+	  		if (ext_trigger_input_value && logging_en)
+	  		{
+	  			// Debounce the input
+	  			if (HAL_GetTick() - _debounce_prev_time > _debounce_time_ext_input)
+	  			{
+	  				// start the ADC timer
+	  			  tim3_counter = 0;
+				  adc_is_half = 0;
+				  adc_16b_is_half = 0;
+				  adc_ready = 0;
+				  gpio_result_write_ptr = 0;
+				  time_result_write_ptr = 0;
+				  gpio_is_half = 0;
+				  gpio_ready = 0;
+				  TIM3->CNT = 0;
+				  NextState = MAIN_LOGGING;
+				  HAL_TIM_Base_Start_IT(&htim3);
+	  			}
+	  		} else if (!logging_en){
+	  			NextState = MAIN_IDLE;
+	  		} else {
+	  			_debounce_prev_time = HAL_GetTick();
+	  		}
+
+
+		  break;
 
 	  	  case MAIN_LOGGING:
+
+	  		// Forward the state of the external input to the ESP32 via EXT_PIN_VALUE_Pin
+	  		// This way the ESP32 knows logging has stopped and data needs to be retrieved.
+
 	  		if (adc_ready && gpio_ready)
 			{
 	//			gpio_result_write_ptr = 0;
@@ -562,7 +604,8 @@ int main(void)
 
 			}
 
-	  	  if (!logging_en || overrun)
+
+	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL))
 		  {
 //				  if (overrun)
 //				  {
@@ -576,19 +619,21 @@ int main(void)
 			  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
 			  HAL_Delay(50);
 			  // Set ADC to single conversion measure mode
-			  NextState = MAIN_IDLE;
+
+			  if (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL && logging_en)
+			  {
+				  NextState = MAIN_WAIT_FOR_TRIGGER;
+			  } else {
+				  NextState = MAIN_IDLE;
+			  }
 		  }
 		  break;
 
 
 		  case MAIN_IDLE:
-			  if (logging_en && spi_ctrl_isIdle())
+			  // In case logging gets enabled and we are in continuous mode, start the ADC
+			  if (logging_en && spi_ctrl_isIdle() && _trigger_mode == TRIGGER_MODE_CONTINUOUS)
 			  {
-
-//				  if (!is16bitmode)
-//				  {
-//					  HAL_ADC_Stop_DMA(&hadc1);
-//				  }
 
 				  tim3_counter = 0;
 				  adc_is_half = 0;
@@ -598,54 +643,18 @@ int main(void)
 				  time_result_write_ptr = 0;
 				  gpio_is_half = 0;
 				  gpio_ready = 0;
-
-//				  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, RESET);
-				  // Make sure we have the original ADC config put in place
-//				  hadc1 = hadc1_bak;
-				  // Disable ADC
-//				  HAL_ADC_DeInit(&hadc1);
-				  // Reinit ADC
-//				  MX_ADC1_Init();
-
-
-//				  ADC_Reinit();
-
-//
-
-
-//				  HAL_ADCEx_Calibration_Start(&hadc1);
-
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
 
-//				  if (is16bitmode)
-//				  {
-					  // reset iir
-//					  iir_reset();
-
-					  // Start adc
-					  //ADC1->CR |= ADC_CR_ADSTART;
-//					  if(HAL_ADC_Start_DMA(
-//							 &hadc1,
-//							(uint32_t*)(adc16bBuffer),
-//							16) == HAL_OK)
-//					  {
-						  NextState = MAIN_LOGGING;
-//					  }
-
-
-//				  } else {
-//					  if (HAL_ADC_Start_DMA(
-//							 &hadc1,
-//					  		(uint32_t*)(spi_msg_1_ptr->adcData),
-//					  		ADC_BUFFERSIZE_SAMPLES) == HAL_OK)
-//					  {
-//						  NextState = MAIN_LOGGING;
-//					  }
-//				  }
+				  NextState = MAIN_LOGGING;
 
 				  HAL_TIM_Base_Start_IT(&htim3);
 
+
+			  } else if (logging_en && spi_ctrl_isIdle() && _trigger_mode == TRIGGER_MODE_EXTERNAL) {
+				 // In this case we wait for the external trigger to become high
+				  _debounce_prev_time = HAL_GetTick();
+				  NextState = MAIN_WAIT_FOR_TRIGGER;
 
 			  } else  {
 				  // Check for events
@@ -1050,27 +1059,27 @@ static void MX_RTC_Init(void)
   if (__HAL_RTC_GET_FLAG(&hrtc, RTC_FLAG_INITS) == RESET) {
   /* USER CODE END Check_RTC_BKUP */
 
-    /** Initialize RTC and set the Time and Date
-    */
-    sTime.Hours = 12;
-    sTime.Minutes = 0;
-    sTime.Seconds = 0;
-    sTime.SubSeconds = 0;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
-    {
-      Error_Handler();
-    }
-    sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-    sDate.Month = RTC_MONTH_FEBRUARY;
-    sDate.Date = 1;
-    sDate.Year = 24;
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 12;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.SubSeconds = 0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_FEBRUARY;
+  sDate.Date = 1;
+  sDate.Year = 24;
 
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
-    {
-      Error_Handler();
-    }
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN RTC_Init 2 */
   }
   /* USER CODE END RTC_Init 2 */
@@ -1262,6 +1271,9 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DIGITAL_IN_0_Pin DIGITAL_IN_1_Pin DIGITAL_IN_2_Pin DIGITAL_IN_3_Pin
@@ -1271,6 +1283,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : EXT_PIN_VALUE_Pin */
+  GPIO_InitStruct.Pin = EXT_PIN_VALUE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(EXT_PIN_VALUE_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : AIN_RANGE_SELECT_CLK_Pin AIN_RANGE_SELECT_CLR_Pin AIN_PULLUP_SELECT_CLR_Pin */
   GPIO_InitStruct.Pin = AIN_RANGE_SELECT_CLK_Pin|AIN_RANGE_SELECT_CLR_Pin|AIN_PULLUP_SELECT_CLR_Pin;

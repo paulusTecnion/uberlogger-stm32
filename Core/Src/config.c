@@ -5,18 +5,21 @@
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
 
-extern SPI_HandleTypeDef * hspi1;
+//extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
-extern DMA_HandleTypeDef hdma_adc1;
+//extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim3;
 
 extern RTC_HandleTypeDef hrtc;
 extern uint8_t main_exit_config ;
 extern log_mode_t logMode;
-extern uint8_t _data_lines_per_transaction;
+//extern uint8_t _data_lines_per_transaction;
 extern adc_resolution_t adc_resolution;
 extern adc_channel_range_t adc_voltage_range_g;
 extern uint8_t spi_lines_per_transaction;
+extern uint8_t _trigger_mode; // indicates if trigger mode is enabled or not.
+extern uint32_t _debounce_time_ext_input;
+extern volatile uint16_t ext_trigger_input;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -142,6 +145,23 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 				  break;
 
+			  case STM32_CMD_SET_TRIGGER_MODE:
+				  uint32_t debounceTime;
+
+				  memcpy((void*)&debounceTime, (const void*)&cmd->data2, sizeof(debounceTime));
+
+				  resp.command = STM32_CMD_SET_TRIGGER_MODE;
+				  if (!Config_set_triggerMode(cmd->data, cmd->data1) &&
+						  (!Config_set_debounceTime(debounceTime)))
+				  {
+					  resp.data = CMD_RESP_OK;
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+				  }
+
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+				  break;
+
 
 
 			  default:
@@ -180,6 +200,51 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 
 	}
 
+}
+
+uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio)
+{
+	if ((mode > TRIGGER_MODE_EXTERNAL) || ((gpio < 1) || (gpio > 6)))
+		return 1;
+	_trigger_mode = mode;
+
+	switch (gpio)
+	{
+	case 1:
+		ext_trigger_input = DIGITAL_IN_0_Pin;
+		break;
+
+	case 2:
+		ext_trigger_input = DIGITAL_IN_1_Pin;
+		break;
+
+	case 3:
+		ext_trigger_input = DIGITAL_IN_2_Pin;
+		break;
+
+	case 4:
+		ext_trigger_input = DIGITAL_IN_3_Pin;
+		break;
+
+	case 5:
+		ext_trigger_input = DIGITAL_IN_4_Pin;
+		break;
+
+	case 6:
+		ext_trigger_input = DIGITAL_IN_5_Pin;
+		break;
+	}
+
+	return 0;
+}
+
+uint8_t Config_set_debounceTime(uint32_t debounceTime)
+{
+	if (debounceTime > MAX_DEBOUNCE_TIME)
+		return 1;
+
+	_debounce_time_ext_input = debounceTime;
+	return 0;
 }
 
 uint8_t Config_Set_Time(uint32_t epoch)
