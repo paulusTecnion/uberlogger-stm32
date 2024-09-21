@@ -76,6 +76,7 @@ volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
 volatile uint16_t ext_trigger_input = DIGITAL_IN_0_Pin;
 uint8_t ext_trigger_input_value = 0;
+uint8_t ext_trigger_input_value_debounced = 0;
 
 static uint8_t adc_is_half = 0, adc_16b_is_half=0;
 static uint8_t _singleshot = 0;
@@ -494,6 +495,7 @@ int main(void)
 //	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
 //	  ((uint16_t*)spi_msg_2_ptr->adcData)[i] = (uint16_t)i+(sizeof(spi_msg_1_ptr->adcData)/2);
 //  }
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -510,8 +512,32 @@ int main(void)
 	  busy = 0; // reset interrupt timeout
 
 	  // forward trigger input to esp32
-	  ext_trigger_input_value = HAL_GPIO_ReadPin(GPIOB, ext_trigger_input);
+	  if (HAL_GPIO_ReadPin(GPIOB, ext_trigger_input))
+	  {
+	      // Input is high and hasn't been debounced yet
+	      if (ext_trigger_input_value_debounced == 0)
+	      {
+	          // Start debouncing: set the previous time to the current time
+	          _debounce_prev_time = HAL_GetTick();
+	          ext_trigger_input_value_debounced = 1;  // Mark as debouncing
+	      }
+
+	      // Check if debounce time has passed
+	      if ((HAL_GetTick() - _debounce_prev_time > _debounce_time_ext_input))
+	      {
+	    	  ext_trigger_input_value = 1;  // Set the output high
+	      }
+	  }
+	  else
+	  {
+	      // Input is low, reset debouncing and immediately set output low
+	      ext_trigger_input_value = 0;
+	      ext_trigger_input_value_debounced = 0;  // Reset debouncing state
+	      _debounce_prev_time = HAL_GetTick();    // Reset debounce timer
+	  }
+
 	  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
+
 
 	  // if (is16bitmode)
 	  // {
@@ -534,8 +560,7 @@ int main(void)
 	  		if (ext_trigger_input_value && logging_en)
 	  		{
 	  			// Debounce the input
-	  			if (HAL_GetTick() - _debounce_prev_time > _debounce_time_ext_input)
-	  			{
+
 	  				// start the ADC timer
 	  			  tim3_counter = 0;
 				  adc_is_half = 0;
@@ -548,13 +573,10 @@ int main(void)
 				  TIM3->CNT = 0;
 				  NextState = MAIN_LOGGING;
 				  HAL_TIM_Base_Start_IT(&htim3);
-	  			}
+
 	  		} else if (!logging_en){
 	  			NextState = MAIN_IDLE;
-	  		} else {
-	  			_debounce_prev_time = HAL_GetTick();
 	  		}
-
 
 		  break;
 
@@ -632,7 +654,7 @@ int main(void)
 
 		  case MAIN_IDLE:
 			  // In case logging gets enabled and we are in continuous mode, start the ADC
-			  if (logging_en && spi_ctrl_isIdle() && _trigger_mode == TRIGGER_MODE_CONTINUOUS)
+			  if (logging_en && spi_ctrl_isIdle() && (_trigger_mode != TRIGGER_MODE_EXTERNAL))
 			  {
 
 				  tim3_counter = 0;

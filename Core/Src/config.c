@@ -204,7 +204,7 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 
 uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio)
 {
-	if ((mode > TRIGGER_MODE_EXTERNAL) || ((gpio < 1) || (gpio > 6)))
+	if ((mode > TRIGGER_MODE_EXTERNAL_CONTROL) || ((gpio < 1) || (gpio > 6)))
 		return 1;
 	_trigger_mode = mode;
 
