@@ -5,18 +5,21 @@
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
 
-extern SPI_HandleTypeDef * hspi1;
+//extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
-extern DMA_HandleTypeDef hdma_adc1;
+//extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim3;
 
 extern RTC_HandleTypeDef hrtc;
 extern uint8_t main_exit_config ;
 extern log_mode_t logMode;
-extern uint8_t _data_lines_per_transaction;
+//extern uint8_t _data_lines_per_transaction;
 extern adc_resolution_t adc_resolution;
 extern adc_channel_range_t adc_voltage_range_g;
 extern uint8_t spi_lines_per_transaction;
+extern uint8_t _trigger_mode; // indicates if trigger mode is enabled or not.
+extern uint32_t _debounce_time_ext_input;
+extern volatile uint16_t ext_trigger_input;
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -142,6 +145,23 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 				  break;
 
+			  case STM32_CMD_SET_TRIGGER_MODE:
+				  uint32_t debounceTime;
+
+				  memcpy((void*)&debounceTime, (const void*)&cmd->data2, sizeof(debounceTime));
+
+				  resp.command = STM32_CMD_SET_TRIGGER_MODE;
+				  if (!Config_set_triggerMode(cmd->data, cmd->data1) &&
+						  (!Config_set_debounceTime(debounceTime)))
+				  {
+					  resp.data = CMD_RESP_OK;
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+				  }
+
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+				  break;
+
 
 
 			  default:
@@ -180,6 +200,51 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 
 	}
 
+}
+
+uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio)
+{
+	if ((mode > TRIGGER_MODE_EXTERNAL_CONTROL) || ((gpio < 1) || (gpio > 6)))
+		return 1;
+	_trigger_mode = mode;
+
+	switch (gpio)
+	{
+	case 1:
+		ext_trigger_input = DIGITAL_IN_0_Pin;
+		break;
+
+	case 2:
+		ext_trigger_input = DIGITAL_IN_1_Pin;
+		break;
+
+	case 3:
+		ext_trigger_input = DIGITAL_IN_2_Pin;
+		break;
+
+	case 4:
+		ext_trigger_input = DIGITAL_IN_3_Pin;
+		break;
+
+	case 5:
+		ext_trigger_input = DIGITAL_IN_4_Pin;
+		break;
+
+	case 6:
+		ext_trigger_input = DIGITAL_IN_5_Pin;
+		break;
+	}
+
+	return 0;
+}
+
+uint8_t Config_set_debounceTime(uint32_t debounceTime)
+{
+	if (debounceTime > MAX_DEBOUNCE_TIME)
+		return 1;
+
+	_debounce_time_ext_input = debounceTime;
+	return 0;
 }
 
 uint8_t Config_Set_Time(uint32_t epoch)
@@ -341,52 +406,18 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
 		hadc1.Init.ContinuousConvMode = ENABLE;
 	 }
-	//  else {
-	// 	 hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
-	// 	  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T3_TRGO;
-	// 	  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-	// 	  hadc1.Init.ContinuousConvMode = DISABLE;
-	//  }
-
-
-	 // always set prescaler to 32, except when in 16 bit mode and having 100Hz or 250 Hz logging rate
-//	 if (!(is16bitmode && (sampleFreq != ADC_SAMPLE_RATE_100Hz || sampleFreq != ADC_SAMPLE_RATE_250Hz)))
-//	 {
-//		 // Set to prescaler 32. See page 332 of tech reference
-//		ADC1_COMMON->CCR  |= ADC_CCR_PRESC_3;
-//	 }
-
 	 // set the sample frequency for the iir filter
+	 if (sampleFreq < ADC_SAMPLE_RATE_1Hz)
+	 {
+		 sampleFreq = ADC_SAMPLE_RATE_25Hz;
+	 }
 
 	iir_set_samplefreq(sampleFreq);
 
 
-//	if (sampleFreq <= ADC_SAMPLE_RATE_250Hz)
-//	{
-//		spi_msg_slow_freq_1->msg_no = 0xFA;
-//
-//		spi_msg_slow_freq_2->msg_no = 0xAB;
-//	} else {
-//	  spi_msg_1_ptr->startByte[0] = 0xFA;
-//	  spi_msg_1_ptr->startByte[1] = 0xFB;
-//	  spi_msg_2_ptr->stopByte[0]= 0xFB;
-//	  spi_msg_2_ptr->stopByte[1]= 0xFA;
-//	}
-
 	 switch(sampleFreq)
 	 {
 
-//		 case ADC_SAMPLE_RATE_EVERY_60S:
-//				 spi_lines_per_transaction = 1;
-//				 htim3.Init.Prescaler = 60000-1;
-//				 htim3.Init.Period = 64000 ;
-//		break;
-//
-//		 case ADC_SAMPLE_RATE_EVERY_10S:
-//			 spi_lines_per_transaction = 1;
-//			 htim3.Init.Prescaler = 10000-1;
-//			 htim3.Init.Period = 64000 ;
-//		break;
 
 		 case ADC_SAMPLE_RATE_1Hz:
 			 // Reconfig the timer
@@ -424,7 +455,13 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 			 break;
 
+		 case ADC_SAMPLE_RATE_EVERY_3600S:
+		 case ADC_SAMPLE_RATE_EVERY_600S:
+		 case ADC_SAMPLE_RATE_EVERY_300S:
+		 case ADC_SAMPLE_RATE_EVERY_60S:
+		 case ADC_SAMPLE_RATE_EVERY_10S:
 		 case ADC_SAMPLE_RATE_25Hz:
+
 
 			 spi_lines_per_transaction = 25;
 			htim3.Init.Prescaler = 100-1;

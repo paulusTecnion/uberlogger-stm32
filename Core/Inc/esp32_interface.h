@@ -11,6 +11,7 @@
 #define MAX_WIFI_SSID_LEN 50
 #define MAX_WIFI_PASSW_LEN 20
 #define NUM_ADC_CHANNELS 8
+#define MAX_DEBOUNCE_TIME 60000
 
 typedef enum adc_channel_e {
 	ADC_CHANNEL_0_T = 0x00,
@@ -47,9 +48,12 @@ typedef enum adc_channel_enable_e {
 } adc_channel_enable_t;
 
 typedef enum adc_sample_rate_e {
-//	ADC_SAMPLE_RATE_EVERY_60S = 0,
-//		ADC_SAMPLE_RATE_EVERY_10S,
-	    ADC_SAMPLE_RATE_1Hz = 0,
+		ADC_SAMPLE_RATE_EVERY_3600S = 0, // once per hour
+		ADC_SAMPLE_RATE_EVERY_600S, // once per 10 min
+		ADC_SAMPLE_RATE_EVERY_300S, // once per 5 min
+		ADC_SAMPLE_RATE_EVERY_60S, // once per 1 min
+		ADC_SAMPLE_RATE_EVERY_10S, // once per 10 sec
+	    ADC_SAMPLE_RATE_1Hz,
 		ADC_SAMPLE_RATE_2Hz,
 		ADC_SAMPLE_RATE_5Hz,
 		ADC_SAMPLE_RATE_10Hz,
@@ -73,7 +77,7 @@ typedef enum log_mode_e {
 } log_mode_t;
 
 
-
+// enum interface commands with ESP32
 typedef enum  {
 	STM32_CMD_NOP = 0x00,
 	STM32_CMD_SETTINGS_MODE,
@@ -87,6 +91,7 @@ typedef enum  {
 	STM32_CMD_SEND_LAST_ADC_BYTES,
 	STM32_CMD_SET_LOGMODE,
 	STM32_CMD_SET_RANGE,
+	STM32_CMD_SET_TRIGGER_MODE,
 	CMD_UNKNOWN
 } spi_cmd_esp_t;
 

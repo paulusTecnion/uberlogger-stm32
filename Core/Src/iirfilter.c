@@ -58,7 +58,8 @@ uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 	if (	sampleFreq >= ADC_SAMPLE_RATE_1Hz &&
 			sampleFreq <= ADC_SAMPLE_RATE_250Hz)
 	{
-		coeff_index = sampleFreq;
+		// Only coefficients for 1 to 250 Hz are available. So make an offset.
+		coeff_index = sampleFreq - ADC_SAMPLE_RATE_1Hz;
 		cfp = cfl[coeff_index];
 
 		return 0;
