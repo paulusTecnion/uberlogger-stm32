@@ -1,0 +1,75 @@
+name: Release from .release-version
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed for pushing tags and creating releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (full history for tagging)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read release version
+        id: ver
+        shell: bash
+        run: |
+          if [ ! -f .release-version ]; then
+            echo "Missing .release-version" >&2
+            exit 1
+          fi
+          VERSION=$(tr -d '\n\r' < .release-version)
+          if [ -z "$VERSION" ]; then
+            echo ".release-version is empty" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ota_support.bin exists
+        run: |
+          if [ ! -f ota_support.bin ]; then
+            echo "ota_support.bin not found. Build or generate it before this step." >&2
+            exit 1
+          fi
+
+      # Optional: package as a zip too
+      - name: Create zip package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp ota_support.bin dist/
+          (cd dist && zip -r "ota_support-${{ steps.ver.outputs.version }}.zip" ota_support.bin)
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          git config user.name "ci-cd"
+          git config user.email "ci@cd.com"
+          if git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "Tag ${VERSION} already exists."
+          else
+            git tag "${VERSION}"
+            git push origin "refs/tags/${VERSION}"
+          fi
+
+      - name: Publish GitHub Release (with assets)
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: Release ${{ steps.ver.outputs.version }}
+          body: Release notes for version ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            ota_support.bin
+            dist/ota_support-${{ steps.ver.outputs.version }}.zip
