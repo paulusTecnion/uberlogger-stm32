@@ -118,15 +118,16 @@ The firmware includes debug capabilities through:
 3. **ADC accuracy**: Verify calibration and reference voltage settings
 
 ### Connecting the ST-Link for programming
+Below you see the connector shown on the UL01B with the pinout the connector to you ST-link. The same hold for the UL01 version, but you'll have to remove the top cover first.
+<img width="970" height="681" alt="image" src="https://github.com/user-attachments/assets/de1addae-8e7b-433e-af4d-598e8b9505dc" />
 
 ## 🔄 Development Workflow
 
 1. **Modify code** in STM32CubeIDE
 2. **Build** the project (Ctrl+B)
-3. \*\*Fla
-4. **Flash** to device using ST-Link or other programmer
-5. **Test** functionality
-6. **Debug** if needed using breakpoints and watch variables
+3. **Flash** to device using ST-Link or other programmer
+4. **Test** functionality
+5. **Debug** if needed using breakpoints and watch variables
 
 ## 📚 Additional Resources
 
