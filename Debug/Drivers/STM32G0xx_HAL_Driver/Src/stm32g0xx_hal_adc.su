@@ -1,3 +1,5 @@
+../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_ll_adc.h:3912:22:LL_ADC_SetAnalogWDMonitChannels	8	static
+../Drivers/STM32G0xx_HAL_Driver/Inc/stm32g0xx_ll_adc.h:4132:22:LL_ADC_ConfigAnalogWDThresholds	12	static
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_adc.c:853:13:HAL_ADC_MspInit	0	static
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_adc.c:378:19:HAL_ADC_Init	24	static
 ../Drivers/STM32G0xx_HAL_Driver/Src/stm32g0xx_hal_adc.c:870:13:HAL_ADC_MspDeInit	0	static
