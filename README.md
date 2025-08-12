@@ -118,7 +118,8 @@ The firmware includes debug capabilities through:
 3. **ADC accuracy**: Verify calibration and reference voltage settings
 
 ### Connecting the ST-Link for programming
-Below you see the connector shown on the UL01B with the pinout the connector to you ST-link. The same hold for the UL01 version, but you'll have to remove the top cover first.
+Below you see the connector shown on the UL01B with the pinout the connector to you ST-link. The same holds for the UL01 version, but you'll have to remove the top cover first to reach the connector.
+
 <img width="970" height="681" alt="image" src="https://github.com/user-attachments/assets/de1addae-8e7b-433e-af4d-598e8b9505dc" />
 
 ## 🔄 Development Workflow
