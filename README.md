@@ -7,6 +7,8 @@
 
 Welcome to the repository for the [Uberlogger](https://www.uberlogger.com), a simple yet powerful ESP32-based & STM32 WiFi enabled logging device. The logger can log 8 analog channels and 6 digital channels at maximum 250 Hz at 16 or 12 bits to CSV or raw data file on an SD card and is fully stand-alone. The analog channels can be set as either NTC inputs or normal analog inputs with input ranges varying from -10V to +10V DC or from -60V to + 60V DC. There is a web UI interface to configure the device and see live data and an [API](https://docs.uberlogger.com/api) to retrieve data using your own scripts or devices.
 
+I decided to make this open source, since I have little time to make more features alone by myself, and next to that I notice there are hobbyists and research people who might be interested in using or adjusting the code to their needs. Since I value innovation and education, it made sense to make this open source. The source is what it is, with all the things that are nice and not so nice :-) I'm not at full-time programmer, so I was also learning along the way. What makes it a challenge to debug is that it needs to be stable over long periods over time and it uses 2 chips, from which the documentation was not always completely right. I don't have time to give support for new features you might want to add, but you are free to adjust or contribute and do whatever you want with it.
+
 This repository contains the STM32G030 firmware that handles the analog-to-digital conversion, data processing, and communication with the ESP32 chip. The ESP32 firmware repository can be found [here](https://github.com/paulusTecnion/uberlogger-esp32).
 
 ## 💖 Support our cause
@@ -140,9 +142,6 @@ Below you see the connector shown on the UL01B with the pinout the connector to 
 - [Uberlogger ESP32 Repository](https://github.com/paulusTecnion/uberlogger-esp32)
 - [Uberlogger Documentation](https://docs.uberlogger.com)
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
 
 ## 📄 License
 
