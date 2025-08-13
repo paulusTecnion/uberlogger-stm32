@@ -95,7 +95,7 @@ uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 
 void iir_init()
 {
-	// Original coefficients from https://tecnionnl.sharepoint.com/:x:/s/uberlogger/EeEoN_zLy7BHslnFgKYobd4BH9o46vYH16z9PU2SE_CJCw?e=e9fFJc
+	// Original coefficients from internal documentation.
 	//{ 0.00184806, 0.003692705, 0.00920621, 0.018327665, 0.045191272, 0.088340294, 0.16887658, 0.370256345};
 //	cfl[0] = fixedpt_rconst(0.00184806); // taking this
 //	cfl[1] = fixedpt_rconst(0.00184806);
