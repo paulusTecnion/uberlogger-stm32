@@ -119,52 +119,9 @@ s_date_time_t current_date_time;
 uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
-//typedef struct {
-//    uint8_t startByte[START_STOP_NUM_BYTES];
-//    uint16_t dataLen;
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-//    uint8_t padding3;
-//    uint8_t padding4;
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-//    union {
-//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-//    };
-//} spi_msg_1_t;
-//
-//typedef struct {
-//    union {
-//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-//    };
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-//    uint8_t padding1;
-//    uint8_t padding2;
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-//    uint16_t dataLen;
-//    uint8_t stopByte[START_STOP_NUM_BYTES];
-//} spi_msg_2_t;
-//
-//typedef struct   __attribute__((aligned(4)))  {
-//    uint8_t msg_no;
-//	uint16_t dataLen;
-//    uint8_t padding1[11];
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
-//    union
-//    {
-//        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
-//        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
-//    };
-//    // uint16_t crc;
-//} spi_msg_slow_freq_t;
-
-
 uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
 
-//spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
 uint16_t  *adc_data_u16;
-//spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
 
 spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
 spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
@@ -342,11 +299,6 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 
 		if (adc_resolution == ADC_12_BITS)
 		{
-//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
-//			{
-//				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
-//			}
-
 			for (int i = 0; i<8; i++)
 			{
 				//  correct adc values for non-linearities
@@ -370,11 +322,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		
 		if (adc_resolution == ADC_12_BITS)
 		{
-//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
-//			{
-//				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
-//			}
-
 			for (int i = 0; i<8; i++)
 			{
 				// First correct adc values for non-linearities
@@ -452,9 +399,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -480,12 +424,6 @@ int main(void)
   GPIOB->OSPEEDR |= (0x0200);
   adc_data_u16 = (uint16_t*)spi_msg_slow_freq_1->adcData;
 
-  // Enable TIM1 interrupt
-//  TIM1->DIER |= TIM_DIER_UIE;
-//  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
-
-
-//  prev_date_time.subseconds = 9999;
   // Backup current adc settings
   hadc1_bak = hadc1;
 
@@ -517,11 +455,6 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc1);
   Adc_start();
   busy = 1;
-//  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
-//  {
-//	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
-//	  ((uint16_t*)spi_msg_2_ptr->adcData)[i] = (uint16_t)i+(sizeof(spi_msg_1_ptr->adcData)/2);
-//  }
 
   /* USER CODE END 2 */
 
@@ -564,20 +497,6 @@ int main(void)
 	  }
 
 	  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
-
-
-	  // if (is16bitmode)
-	  // {
-		//   memcpy(tbuffer, adc16bBuffer, 16);
-		//   for (int p = 0; p<8; p++)
-		//   {
-		// 	  tbuffer[p] = tbuffer[p] >> 4;
-		//   }
-	  // } else {
-		//   memcpy(tbuffer, spi_msg_1_ptr->adcData, 16);
-	  // }
-
-
 
 	  switch(MainState)
 	  {
@@ -797,12 +716,7 @@ int main(void)
 			  if (  main_exit_config )
 			  {
 				  NextState = MAIN_IDLE;
-				  // Start the ADC if we are in 16 bit mode.
-//				  if (is16bitmode)
-//				  {
 				  Adc_start();
-//				  }
-
 				  main_exit_config = 0 ;
 				  break;
 			  }
@@ -822,9 +736,6 @@ int main(void)
 		  case MAIN_SINGLE_SHOT:
 		  {
 			  htim3_bak = htim3;
-			  // Set timer to 100Hz
-//			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
-
 			  tim3_counter = 0;
 			  adc_is_half = 0;
 			  adc_16b_is_half = 0;
@@ -837,19 +748,6 @@ int main(void)
 			  TIM3->CNT = 0;
 
 			  HAL_TIM_Base_Start_IT(&htim3);
-//			  HAL_ADCEx_Calibration_Start(&hadc1);
-
-			  // In 16 bit mode we have already started the ADC. Only do this for 12 bit.
-			  // if (!is16bitmode)
-			  // {
-				//   HAL_ADC_Start_DMA(
-				// 	  &hadc1,
-				// 	  (uint32_t*)(spi_msg_1_ptr->adcData),
-				// 	  ADC_BUFFERSIZE_SAMPLES);
-			  // }
-
-
-			  // Wait until first message is sent
 
 			  // Set ADC to single conversion measure mode
 			  NextState = MAIN_SINGLE_SHOT_AWAIT_RESULT;
@@ -865,24 +763,10 @@ int main(void)
 			  // limit our acquisition to 3 samples
 			  if (gpio_result_write_ptr >= 1 && adc_ready)
 			  {
-				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
-
 				 HAL_TIM_Base_Stop_IT(&htim3);
-//				 if (is16bitmode)
-//				 {
-//					 HAL_ADC_Stop(&hadc1);
-//				 } else {
-				//  if (!is16bitmode)
-				//  {
-				// 	 HAL_ADC_Stop_DMA(&hadc1);
-				//  }
 				 }
 
-
-				//  htim3 = htim3_bak;
-				//  HAL_TIM_Base_Init(&htim3);
 				 NextState = MAIN_IDLE;
-			  // }
 
 		  break;
 
@@ -1384,53 +1268,6 @@ void ADC_Reinit()
 	  }
 
 }
-
-
-
-
-//uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
-//{
-//	return 1;
-//}
-
-
-//
-//uint8_t Send_OK(void)
-//{
-//
-//	t.t8[0] = RESP_OK;
-//	t.t8[1] = 0x00;
-//	HAL_StatusTypeDef errorcode;
-//
-//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
-//
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-//	if (errorcode == HAL_OK)
-//	{
-//		return 1;
-//	} else {
-//		return 0;
-//	}
-//}
-//uint8_t Send_NOK(void)
-//{
-//
-//	t.t8[0]= RESP_NOK;
-//	t.t8[1] = 0x00;
-//	HAL_StatusTypeDef errorcode;
-//
-//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-//	if (errorcode == HAL_OK)
-//	{
-//		return 1;
-//	} else {
-//		return 0;
-//	}
-//}
-
 
 /* USER CODE END 4 */
 

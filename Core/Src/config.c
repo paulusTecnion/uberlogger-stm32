@@ -111,21 +111,6 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 				break;
 
-//			  case STM32_CMD_SET_ADC_CHANNELS_ENABLED:
-//				  resp.command = STM32_CMD_SET_ADC_CHANNELS_ENABLED;
-//
-//				  if (!Config_Set_Adc_channels(cmd->data))
-//				  {
-//					  resp.data = CMD_RESP_OK;
-//
-//				  } else {
-//					  resp.data = CMD_RESP_NOK;
-//
-//				  }
-//
-//				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
-//				  break;
-
 			  case STM32_CMD_SET_DATETIME:
 				  resp.command = STM32_CMD_SET_DATETIME;
 
@@ -276,57 +261,6 @@ uint8_t Config_Set_Time(uint32_t epoch)
 
 	RTC_TimeTypeDef time = {0};
 	RTC_DateTypeDef date = {0};
-
-//	uint32_t tm;
-//	uint32_t t1;
-//	uint32_t a;
-//	uint32_t b;
-//	uint32_t c;
-//	uint32_t d;
-//	uint32_t e;
-//	uint32_t m;
-//	int16_t  year  = 0;
-//	int16_t  month = 0;
-//	int16_t  dow   = 0;
-//	int16_t  mday  = 0;
-//	int16_t  hour  = 0;
-//	int16_t  min   = 0;
-//	int16_t  sec   = 0;
-//	uint64_t JD    = 0;
-//	uint64_t JDN   = 0;
-//
-//	// These hardcore math's are taken from http://en.wikipedia.org/wiki/Julian_day
-//
-//	JD  = ((epoch + 43200) / (86400 >>1 )) + (2440587 << 1) + 1;
-//	JDN = JD >> 1;
-//
-//	tm = epoch; t1 = tm / 60; sec  = tm - (t1 * 60);
-//	tm = t1;    t1 = tm / 60; min  = tm - (t1 * 60);
-//	tm = t1;    t1 = tm / 24; hour = tm - (t1 * 24);
-//
-//
-//	dow   = JDN % 7;
-//	a     = JDN + 32044;
-//	b     = ((4 * a) + 3) / 146097;
-//	c     = a - ((146097 * b) / 4);
-//	d     = ((4 * c) + 3) / 1461;
-//	e     = c - ((1461 * d) / 4);
-//	m     = ((5 * e) + 2) / 153;
-//	mday  = e - (((153 * m) + 2) / 5) + 1;
-//	month = m + 3 - (12 * (m / 10));
-//	year  = (100 * b) + d - 4800 + (m / 10);
-//
-//	date.Year    = year - 2000;
-//	date.Month   = month;
-//	date.Date    = mday;
-//	date.WeekDay = dow;
-//	time.Hours   = hour;
-//	time.Minutes = min;
-//	time.Seconds = sec;
-//
-//
-//	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
-//	HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
 
 	time.Hours = (epoch / 3600) % 24; // Extract hours (range: 0-23)
 	time.Minutes = (epoch / 60) % 60; // Extract minutes (range: 0-59)
@@ -533,6 +467,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 			 break;
 
+	/* --- Phase 2 reference: candidate prescaler/period values for >250 Hz (see refactor spec docs/superpowers/specs/2026-06-05-uberlogger-stm32-refactor-design.md sec. 11) --- */
 	//	 case ADC_SAMPLE_RATE_500Hz:
 	//		 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 	//		htim3.Init.Prescaler = 127;

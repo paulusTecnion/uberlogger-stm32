@@ -37,7 +37,6 @@
 
  fixedpt cfl[NUM_COEFFICIENTS];
 
-//int64_t x_state[NUM_ADC_CHANNELS];
 uint16_t y_state[NUM_ADC_CHANNELS] = {0};
 uint8_t coeff_index = 0;
 
@@ -95,20 +94,7 @@ uint8_t iir_set_samplefreq(uint8_t sampleFreq)
 
 void iir_init()
 {
-	// Original coefficients from internal documentation.
-	//{ 0.00184806, 0.003692705, 0.00920621, 0.018327665, 0.045191272, 0.088340294, 0.16887658, 0.370256345};
-//	cfl[0] = fixedpt_rconst(0.00184806); // taking this
-//	cfl[1] = fixedpt_rconst(0.00184806);
-//	cfl[2] = fixedpt_rconst(0.00184806);
-//	cfl[3] = fixedpt_rconst(0.003692705);
-//	cfl[4] = fixedpt_rconst(0.00920621);
-//	cfl[5] = fixedpt_rconst(0.018327665);
-//	cfl[6] = fixedpt_rconst(0.045191272);
-//	cfl[7] = fixedpt_rconst(0.088340294);
-//	cfl[8] = fixedpt_rconst(0.16887658);
-//	cfl[9] = fixedpt_rconst(0.370256345);
-
-	cfl[0] = fixedpt_rconst(0.00184806); // taking this
+	cfl[0] = fixedpt_rconst(0.00184806); // 1 Hz coefficient
 	cfl[1] = fixedpt_rconst(0.003692705);
 	cfl[2] = fixedpt_rconst(0.00920621);
 	cfl[3] = fixedpt_rconst(0.018327665);
