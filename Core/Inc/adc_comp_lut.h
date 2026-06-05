@@ -33,8 +33,11 @@
 typedef struct { int32_t x; int32_t y; } lut_t;
 
 
+/** Apply ADC non-linearity compensation by interpolating *input through the given LUT; returns corrected raw count. */
 uint16_t adc_comp(lut_t * table, uint16_t *input);
+/** Select the active LUT for a channel based on voltage range and ADC resolution; returns 0 on success. */
 uint8_t adc_set_lut(adc_channel_range_t range, adc_resolution_t resolution, uint8_t channel);
+/** Linear interpolation over an n-entry LUT at point x; returns interpolated y (raw count) or x if out of range. */
 uint16_t interp( lut_t * c, uint16_t x, int n );
 
 #endif

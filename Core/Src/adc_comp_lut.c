@@ -38,6 +38,7 @@ int32_t q_mul(int32_t a, int32_t b) {
     return result >> Q;
 }
 
+/* 64-bit software divide: expensive on the divide-less Cortex-M0+; runs per-sample. See refactor spec sec. 11 (Phase 2: apply LUT only to decimated samples). */
 int32_t q_div(int32_t a, int32_t b) {
     int64_t result;
 

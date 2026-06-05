@@ -33,7 +33,7 @@
 
 
 #define NUM_COEFFICIENTS 8   // Filter length
-#define NUM_ADC_CHANNELS 8
+/* NUM_ADC_CHANNELS is defined in esp32_interface.h (via iirfilter.h); no local duplicate needed. */
 
  fixedpt cfl[NUM_COEFFICIENTS];
 
@@ -51,6 +51,11 @@ uint16_t round_value(uint32_t val) {
 
 uint32_t temp[NUM_ADC_CHANNELS] = {0};
 
+/* INTENTIONAL DESIGN: error-feedback fixed-point IIR to avoid limit cycles.
+ * The 32-bit accumulator (temp[]) holds fractional state; the error term
+ * (input - output) is scaled by cfp (Q16 coefficient) before accumulation.
+ * This is a deliberate technique — do NOT "simplify" to a naive rounded IIR.
+ * See the dsp.stackexchange link below for rationale. */
 void iir_filter(uint16_t * input, uint16_t * output, uint8_t channel)
 {
 	// Here we calculate the error in 32 bits. Then we add a fraction of the error to the output of signal. This way we smartly solve the limit cycle problem with iir filters.

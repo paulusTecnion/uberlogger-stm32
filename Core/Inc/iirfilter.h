@@ -29,12 +29,13 @@
 
 
 
-/// @brief 
-/// @param input 
-/// @return 
+/** Apply one-pole error-feedback IIR low-pass to a single sample; input/output in raw ADC counts (0–65535 for 16-bit). */
 void  iir_filter(uint16_t * input, uint16_t * output, uint8_t channel);
+/** Set the filter cut-off via ADC_SAMPLE_RATE_* enum; returns 0 on success, 1 if sampleFreq is out of range. */
 uint8_t iir_set_samplefreq(uint8_t sampleFreq);
+/** Reset all per-channel filter state (y_state and 32-bit accumulators) to zero. */
 void iir_reset();
+/** Load the fixed-point IIR coefficients (one per supported sample rate). Must be called before iir_filter(). */
 void iir_init();
 
 #endif
