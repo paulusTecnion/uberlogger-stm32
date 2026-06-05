@@ -199,6 +199,25 @@ typedef struct {
     uint8_t stopByte[START_STOP_NUM_BYTES];
 } spi_msg_2_t;
 
+/* --- Phase 1 wire-layout pins (refactor spec sec. 8). DO NOT change these numbers.
+ * If a build fails here, a struct layout changed = the SPI wire format changed. --- */
+#include <stddef.h>
+_Static_assert(sizeof(s_date_time_t) == 12, "s_date_time_t layout changed");
+
+_Static_assert(sizeof(spi_msg_1_t) == 2048, "spi_msg_1_t size changed");
+_Static_assert(offsetof(spi_msg_1_t, timeData) == 16,  "spi_msg_1_t.timeData moved");
+_Static_assert(offsetof(spi_msg_1_t, gpioData) == 856, "spi_msg_1_t.gpioData moved");
+_Static_assert(offsetof(spi_msg_1_t, padding1) == 926, "spi_msg_1_t.padding1 moved");
+_Static_assert(offsetof(spi_msg_1_t, adcData)  == 928, "spi_msg_1_t.adcData moved");
+
+_Static_assert(sizeof(spi_msg_2_t) == 2048, "spi_msg_2_t size changed");
+_Static_assert(offsetof(spi_msg_2_t, adcData)  == 0,    "spi_msg_2_t.adcData moved");
+_Static_assert(offsetof(spi_msg_2_t, gpioData) == 1122, "spi_msg_2_t.gpioData moved");
+_Static_assert(offsetof(spi_msg_2_t, timeData) == 1192, "spi_msg_2_t.timeData moved");
+_Static_assert(offsetof(spi_msg_2_t, padding0) == 2032, "spi_msg_2_t.padding0 moved");
+_Static_assert(offsetof(spi_msg_2_t, dataLen)  == 2044, "spi_msg_2_t.dataLen moved");
+_Static_assert(offsetof(spi_msg_2_t, stopByte) == 2046, "spi_msg_2_t.stopByte moved");
+
 //typedef struct   __attribute__((aligned(4))) {
 //    uint8_t msg_no;
 //	uint16_t dataLen;
