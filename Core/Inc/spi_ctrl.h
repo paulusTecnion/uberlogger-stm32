@@ -57,7 +57,6 @@ HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length);
 //static void ADC_Set_Single_Acq();
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi);
 uint8_t spi_ctrl_msg_received();
-uint8_t spi_ctrl_msg_sent();
 uint8_t spi_ctrl_isIdle();
 
 

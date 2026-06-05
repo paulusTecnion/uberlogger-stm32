@@ -22,6 +22,21 @@
  * SOFTWARE.
  */
 
+/*
+ * Watchdog timers:
+ *   TIM14 — SPI TX-timeout watchdog.  Started in spi_ctrl_send() when a DMA
+ *            transmit is kicked off.  HAL_SPI_TxCpltCallback() clears it on
+ *            normal completion (disables UIE, resets CNT).  If the timer fires
+ *            before completion, spi_ctrl_loop() detects SPI_CTRL_TX_TIMEOUT,
+ *            aborts the DMA transfer, and returns the state machine to IDLE.
+ *
+ *   TIM16 — SPI RX-timeout watchdog.  Started in spi_ctrl_receive() when a
+ *            DMA receive is kicked off.  HAL_SPI_RxCpltCallback() clears it on
+ *            normal completion (disables UIE, resets CNT).  If the timer fires
+ *            before completion, spi_ctrl_loop() detects SPI_CTRL_RX_TIMEOUT,
+ *            aborts the DMA transfer, and returns the state machine to IDLE.
+ */
+
 #include <spi_ctrl.h>
 #include "main.h"
 
@@ -41,15 +56,12 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 	TIM14->CNT = 0;
 	_next_spi_state = SPI_CTRL_IDLE;
-//	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
 }
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
 	CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 	TIM16->CNT = 0;
-	// Clear timeout interrupt
-//	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
 	SET_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
 }
@@ -70,10 +82,6 @@ HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length)
 			TIM16->CNT = 0;
 			// Enable interrupt
 			SET_BIT(TIM16->DIER,TIM_DIER_UIE);
-			// reset timer
-//			TIM14->SR &= ~TIM_SR_UIF;
-
-			//HAL_TIM_Base_Start_IT(&htim14);
 
 			return errorcode;
 		}
@@ -129,18 +137,6 @@ uint8_t spi_ctrl_msg_received()
 	return result;
 }
 
-// don't use this function.
-uint8_t spi_ctrl_msg_sent()
-{
-		uint8_t result = READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
-		if (result)
-		{
-			CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
-			_curr_spi_state = SPI_CTRL_IDLE;
-		}
-		return result;
-}
-
 uint8_t spi_ctrl_isIdle()
 {
 	if (_curr_spi_state == SPI_CTRL_IDLE)
@@ -164,16 +160,8 @@ void spi_ctrl_loop()
 			break;
 
 		case SPI_CTRL_SENDING:
-//			if (READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT))
-//			{
-//				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_SENT);
-//				_next_spi_state = SPI_CTRL_IDLE;
-//			}
-//			else
 			if (READ_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT))
 			{
-			// stop timeout timer
-//				HAL_TIM_Base_Stop_IT(&htim14);
 				// clear timeout counter
 				TIM14->CNT = 0;
 				// Disable interrupt
@@ -197,8 +185,6 @@ void spi_ctrl_loop()
 			// in spi_ctrl_msg_received, since we want to deal with that asap.
 			if (READ_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT))
 			{
-				// stop timeout timer
-//					HAL_TIM_Base_Stop_IT(&htim14);
 				// clear timeout counter
 				TIM16->CNT = 0;
 				// Disable interrupt
