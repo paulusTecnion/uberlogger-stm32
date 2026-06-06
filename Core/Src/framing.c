@@ -25,200 +25,102 @@
 #include "framing.h"
 #include "string.h"
 
-/* adc_resolution remains owned by main.c (acquisition's concern, spec note for this task);
- * frame_take_ready mirrors the legacy LOGGING-state selection which read this global. */
-extern adc_resolution_t adc_resolution;
+/* One ring slot: a max-sized frame. Only [0..line_count) lines are valid; the
+ * gpio block sits at the fixed offset capacity*16 after the header so the layout
+ * is stride-stable (ESP32 finds gpio without per-frame offset math). */
+typedef struct {
+    ul_frame_hdr_t hdr;
+    uint16_t adc[UL_LINES_MAX * UL_ADC_CH];   /* aligned: hdr is 14 (even) */
+    uint8_t  gpio[UL_LINES_MAX];
+} ul_frame_buf_t;
 
-/* --- module state (moved verbatim from main.c) --- */
-static uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
+_Static_assert(offsetof(ul_frame_buf_t, adc) == 14, "v2 adc block must follow the 14B header");
 
-static spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
-static spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
+static ul_frame_buf_t ring[UL_FRAME_DEPTH];
+static volatile uint8_t  wr_slot   = 0;   /* slot being filled */
+static volatile uint8_t  rd_slot   = 0;   /* oldest ready slot */
+static volatile uint8_t  made_cnt  = 0;   /* frames produced (written ONLY by the TIM3 ISR) */
+static volatile uint8_t  taken_cnt = 0;   /* frames consumed (written ONLY by the main loop) */
+static volatile uint8_t  line_idx  = 0;   /* line within wr_slot */
+static volatile uint8_t  overrun   = 0;
+static uint8_t capacity = DATA_LINES_PER_SPI_TRANSACTION;  /* default 70; reset in init */
 
-static volatile uint32_t gpio_result_write_ptr = 0;
-static uint8_t adc_is_half = 0, adc_16b_is_half = 0;
-static uint8_t gpio_is_half = 0, gpio_ready = 0;
-static uint8_t adc_ready = 0;
+/* Frames ready to send. made_cnt/taken_cnt are each single-writer; their
+ * uint8 difference (true count always in [0, UL_FRAME_DEPTH]) is computed
+ * with wrapping arithmetic, so no lock is needed (SPSC ring). */
+static inline uint8_t frames_ready(void) { return (uint8_t)(made_cnt - taken_cnt); }
 
-static uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
-
-void frame_init(void)
-{
-	memset(data_buffer, 0, sizeof(data_buffer));
-
-	spi_msg_slow_freq_1->startByte[0] = 0xFA;
-	spi_msg_slow_freq_1->startByte[1] = 0xFB;
-
-	spi_msg_slow_freq_2->stopByte[0] = 0xFB;
-	spi_msg_slow_freq_2->stopByte[1] = 0xFA;
+/* On-wire bytes for a frame of the current capacity. */
+static inline uint16_t frame_wire_len(void) {
+    return (uint16_t)(sizeof(ul_frame_hdr_t) + (uint32_t)capacity * UL_LINE_BYTES);
 }
 
-void frame_reset(void)
-{
-	adc_is_half = 0;
-	adc_16b_is_half = 0;
-	adc_ready = 0;
-	gpio_result_write_ptr = 0;
-	gpio_is_half = 0;
-	gpio_ready = 0;
+void frame_init(void) {
+    memset(ring, 0, sizeof(ring));
+    wr_slot = rd_slot = line_idx = overrun = 0;
+    made_cnt = taken_cnt = 0;
+    if (capacity == 0 || capacity > UL_LINES_MAX) capacity = UL_LINES_MAX;
 }
 
-void frame_set_lines_per_transaction(uint8_t n)
-{
-	spi_lines_per_transaction = n;
+void frame_reset(void) {
+    wr_slot = rd_slot = line_idx = overrun = 0;
+    made_cnt = taken_cnt = 0;
 }
 
-uint8_t frame_adc_16b_is_half(void)
-{
-	return adc_16b_is_half;
+void frame_set_lines_per_transaction(uint8_t n) {
+    if (n == 0) n = 1;
+    if (n > UL_LINES_MAX) n = UL_LINES_MAX;
+    capacity = n;
 }
 
-uint8_t frame_adc_ready(void)
-{
-	return adc_ready;
+uint8_t frame_overrun(void)        { return overrun; }
+uint8_t frame_at_line_zero(void)   { return (uint8_t)(line_idx == 0); }
+
+uint8_t frame_append_line(uint32_t base_epoch, uint16_t base_subsec, uint8_t fs_code,
+                          uint8_t gpio, const uint16_t *adc, adc_resolution_t res) {
+    /* If the current slot is full of unsent frames, we cannot start/continue: overrun. */
+    if (line_idx == 0) {
+        if (frames_ready() >= UL_FRAME_DEPTH) { overrun = 1; return 0; }  /* ring full: drop */
+        ul_frame_hdr_t *h = &ring[wr_slot].hdr;
+        h->start[0] = UL_FRAME_START0; h->start[1] = UL_FRAME_START1;
+        h->protocol_version = UL_PROTOCOL_VERSION;
+        h->flags    = (res == ADC_16_BITS) ? UL_FLAG_RES16 : 0;
+        h->base_epoch  = base_epoch;
+        h->base_subsec = base_subsec;
+        h->fs_code   = fs_code;
+        h->capacity  = capacity;
+        h->line_count = 0;
+        h->pad = 0;
+    }
+    ul_frame_buf_t *f = &ring[wr_slot];
+    memcpy(&f->adc[line_idx * UL_ADC_CH], adc, UL_ADC_CH * 2);  /* 8 x u16 */
+    f->gpio[line_idx] = gpio;
+    line_idx++;
+    f->hdr.line_count = line_idx;
+
+    if (line_idx >= capacity) {           /* frame full -> mark ready, advance ring */
+        made_cnt++;
+        wr_slot = (uint8_t)((wr_slot + 1) % UL_FRAME_DEPTH);
+        line_idx = 0;
+        return 1;
+    }
+    return 0;
 }
 
-uint32_t frame_write_ptr(void)
-{
-	return gpio_result_write_ptr;
+uint8_t frame_take_ready(uint8_t **buf, uint16_t *len) {
+    if (frames_ready() == 0) return 0;
+    *buf = (uint8_t*)&ring[rd_slot];
+    *len = frame_wire_len();
+    rd_slot = (uint8_t)((rd_slot + 1) % UL_FRAME_DEPTH);
+    taken_cnt++;
+    return 1;
 }
 
-uint8_t frame_append_line(const s_date_time_t *ts, uint8_t gpio,
-                          const uint16_t *adc, adc_resolution_t res)
-{
-	uint8_t ready_now = 0;
-
-	// Are still in the first ADC half?
-	if (!gpio_is_half)
-	{
-		// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-//			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-		spi_msg_slow_freq_1->gpioData[gpio_result_write_ptr] = gpio;
-//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-		memcpy((void*)&spi_msg_slow_freq_1->timeData[gpio_result_write_ptr], ts, sizeof(s_date_time_t));
-//			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
-		spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr +1 ;
-	} else { // If not, we fill the second part
-//			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-		spi_msg_slow_freq_2->gpioData[gpio_result_write_ptr] = gpio;
-//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-		memcpy((void*)&spi_msg_slow_freq_2->timeData[gpio_result_write_ptr], ts, sizeof(s_date_time_t));
-//			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
-		spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr +1 ;
-	}
-//
-
-
-	// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
-	if (res == ADC_16_BITS)
-	{
-		/* spec sec.7: behavior preserved verbatim, do not 'fix' in Phase 1 */
-		if (!adc_16b_is_half)
-		{
-			memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, adc, 8*2);
-		} else {
-			memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, adc, 8*2);
-		}
-	} else {
-		/* spec sec.7: behavior preserved verbatim, do not 'fix' in Phase 1 */
-		if (!adc_is_half)
-		{
-        // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode.
-//				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, adc, 8*2);
-		} else {
-//				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, adc, 8*2);
-		}
-	}
-
-
-	gpio_result_write_ptr++;
-
-
-	if (gpio_result_write_ptr >= spi_lines_per_transaction)
-	{
-		gpio_is_half = !gpio_is_half;
-		gpio_ready = 1;
-
-		// when in 16 bit mode, manually set adc_ready flag
-		if (res == ADC_16_BITS)
-		{
-			adc_16b_is_half = ~adc_16b_is_half; /* spec sec.7: behavior preserved verbatim, do not 'fix' in Phase 1 */
-			// adc_ready = 1;
-		} else {
-			adc_is_half = ~adc_is_half;
-		}
-		adc_ready = 1;
-		ready_now = 1;
-	}
-
-	gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
-	// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
-
-	return ready_now;
-}
-
-uint8_t frame_take_ready(uint8_t **buf, uint16_t *len)
-{
-	if (!(adc_ready && gpio_ready))
-	{
-		return 0;
-	}
-
-	/* TODO Phase 2: take resolution as a parameter like frame_take_last() instead of reading extern adc_resolution. */
-	if (adc_resolution == ADC_16_BITS)
-	{
-
-		if (adc_16b_is_half)
-		{
-//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-			*buf = (uint8_t*)spi_msg_slow_freq_1; *len = sizeof(spi_msg_1_t);
-		} else {
-			*buf = (uint8_t*)spi_msg_slow_freq_2; *len = sizeof(spi_msg_2_t);
-		}
-
-	} else {
-
-		if (adc_is_half)
-		{
-//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-			*buf = (uint8_t*)spi_msg_slow_freq_1; *len = sizeof(spi_msg_1_t);
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-		} else {
-			*buf = (uint8_t*)spi_msg_slow_freq_2; *len = sizeof(spi_msg_2_t);
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-		}
-	}
-
-	adc_ready = 0;
-	gpio_ready = 0;
-
-	return 1;
-}
-
-void frame_take_last(uint8_t **buf, uint16_t *len, uint8_t singleshot, adc_resolution_t res)
-{
-	if (res == ADC_16_BITS)
-	{
-		if (!adc_16b_is_half || singleshot)
-		{
-			// adc_is_half == 1 means the last message sent was spi_msg_1
-			// So we are now still writing in spi_msg_2.
-			*buf = (uint8_t*)spi_msg_slow_freq_1; *len = sizeof(spi_msg_1_t);
-		} else {
-			*buf = (uint8_t*)spi_msg_slow_freq_2; *len = sizeof(spi_msg_2_t);
-		}
-	} else {
-		if (!adc_is_half || singleshot)
-		{
-			// adc_is_half == 1 means the last message sent was spi_msg_1
-			// So we are now still writing in spi_msg_2.
-			*buf = (uint8_t*)spi_msg_slow_freq_1; *len = sizeof(spi_msg_1_t);
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-		} else {
-			*buf = (uint8_t*)spi_msg_slow_freq_2; *len = sizeof(spi_msg_2_t);
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-		}
-	}
+void frame_take_last(uint8_t **buf, uint16_t *len, uint8_t singleshot, adc_resolution_t res) {
+    (void)singleshot; (void)res;
+    /* Hand back the in-progress slot with its real line_count (partial frame). */
+    ul_frame_buf_t *f = &ring[wr_slot];
+    f->hdr.line_count = line_idx;
+    *buf = (uint8_t*)f;
+    *len = (uint16_t)(sizeof(ul_frame_hdr_t) + (uint32_t)capacity * UL_LINE_BYTES);
 }

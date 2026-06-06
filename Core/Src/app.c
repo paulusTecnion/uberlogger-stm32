@@ -50,7 +50,6 @@ static uint8_t tim14_event = 0;
 
 /* logMode / adc_voltage_range_g are config-owned settings now (config.c). */
 
-uint8_t overrun = 0;                    /* app-private, but kept extern: static-izing lets the compiler const-fold the only (read-only) use and drop a branch, shifting the image */
 static uint8_t datardypin;
 static uint16_t tbuffer[8];
 
@@ -162,14 +161,6 @@ void app_run_once(void)
 				uint8_t *buf; uint16_t len;
 				if (frame_take_ready(&buf, &len))
 				{
-	//			gpio_result_write_ptr = 0;
-	//			time_result_write_ptr = 0;
-					// Half way we have the pointers start at the beginning
-//				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-//				{
-//					overrun = 1;
-//				}
-
 					tim3_counter=0;
 
 					spi_ctrl_send(buf, len);
@@ -178,14 +169,9 @@ void app_run_once(void)
 			}
 
 
-	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL))
+	  	  if ((!logging_en || frame_overrun()) || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL))
 		  {
-//				  if (overrun)
-//				  {
-//					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
-//				  }
-//				  overrun =0;
-			  // reset the this variable to 0, since we expect that a "
+			  // Overrun release gate: when the ring fills, logging stops and returns to IDLE.
 
 			  HAL_TIM_Base_Stop_IT(&htim3);
 
@@ -264,14 +250,18 @@ void app_run_once(void)
 							  uint8_t *buf; uint16_t len;
 							  frame_take_last(&buf, &len, _singleshot, adc_resolution);
 							  spi_ctrl_send(buf, len);
-							  // Preserve legacy _singleshot reset: it only happened in the 16-bit (!adc_16b_is_half || _singleshot) branch; the 12-bit path never reset it here. Do NOT add a 12-bit reset without tracing the caller flow.
-							  if (adc_resolution == ADC_16_BITS && (!frame_adc_16b_is_half() || _singleshot))
-							  {
-								  _singleshot = 0;
-							  }
+							  /* v2: frame_take_last delivers the whole partial frame in one
+							   * transaction (no half model), so a single-shot completes here. */
+							  if (_singleshot) { _singleshot = 0; }
 						  }
 
 
+							  break;
+
+						  case STM32_CMD_GET_PROTOCOL_VERSION:
+							  resp.command = STM32_CMD_GET_PROTOCOL_VERSION;
+							  resp.data    = UL_PROTOCOL_VERSION;
+							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 							  break;
 
 						  case STM32_CMD_NOP:
@@ -344,7 +334,8 @@ void app_run_once(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (frame_write_ptr() >= 1 && frame_adc_ready())
+			  // v2: !frame_at_line_zero() means >=1 line captured in the current frame.
+			  if (!frame_at_line_zero())
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);
 				 }

@@ -48,6 +48,10 @@ uint8_t Config_set_debounceTime(uint32_t debounceTime);
 uint8_t  config_trigger_mode(void);
 uint16_t config_ext_trigger_input(void);
 uint32_t config_debounce_time_ext_input(void);
+
+/* Active sample-rate code (adc_sample_rate_e index) last applied by
+ * Config_Set_Sample_freq; read by the TIM3 ISR to stamp the v2 frame header. */
+uint8_t  current_fs_code(void);
 #endif
 
 

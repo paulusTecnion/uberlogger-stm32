@@ -54,11 +54,16 @@ static adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
 static uint8_t             _trigger_mode = TRIGGER_MODE_CONTINUOUS; // TRIGGER_MODE_CONTINUOUS=disabled, TRIGGER_MODE_EXTERNAL=external trigger
 static uint32_t            _debounce_time_ext_input = 0;
 static volatile uint16_t   ext_trigger_input = DIGITAL_IN_0_Pin;
+/* Active sample-rate code (adc_sample_rate_e index), last applied by
+ * Config_Set_Sample_freq. The TIM3 ISR reads it via current_fs_code() to stamp
+ * the v2 frame header's fs_code (drives ESP32 per-line time reconstruction). */
+static uint8_t             _fs_code = ADC_SAMPLE_RATE_25Hz;
 
 /* Trivial accessors (get-only) for the cross-module readers of the above. */
 uint8_t  config_trigger_mode(void)            { return _trigger_mode; }
 uint16_t config_ext_trigger_input(void)       { return ext_trigger_input; }
 uint32_t config_debounce_time_ext_input(void) { return _debounce_time_ext_input; }
+uint8_t  current_fs_code(void)                { return _fs_code; }
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -97,12 +102,16 @@ void Config_Handler(spi_cmd_t *  cmd)
 				  break;
 
 			  case STM32_CMD_SET_RESOLUTION:
-				  if (!Config_Set_Resolution(cmd->data))
+				  resp.command = STM32_CMD_SET_RESOLUTION;
+				  /* >250 Hz STM backstop: 16-bit is refused while a high rate is active. */
+				  if (ul_is_high_rate(current_fs_code()) && cmd->data == ADC_16_BITS)
 				  {
-					  resp.command = STM32_CMD_SET_RESOLUTION;
+					  resp.data = CMD_RESP_NOK;
+				  }
+				  else if (!Config_Set_Resolution(cmd->data))
+				  {
 					  resp.data = CMD_RESP_OK;
 				  } else {
-					  resp.command = STM32_CMD_SET_RESOLUTION;
 					  resp.data = CMD_RESP_NOK;
 				  }
 
@@ -147,7 +156,12 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 			  case STM32_CMD_SET_LOGMODE:
 				  resp.command = STM32_CMD_SET_LOGMODE;
-				  if (!Config_set_logMode(cmd->data, cmd->data1))
+				  /* >250 Hz STM backstop: CSV is refused while a high rate is active (RAW-only). */
+				  if (ul_is_high_rate(current_fs_code()) && cmd->data == LOGMODE_CSV)
+				  {
+					  resp.data = CMD_RESP_NOK;
+				  }
+				  else if (!Config_set_logMode(cmd->data, cmd->data1))
 				  {
 					  resp.data = CMD_RESP_OK;
 				  } else {
@@ -356,6 +370,13 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	// Make sure timer3 has stopped
 	HAL_TIM_Base_Stop_IT(&htim3);
 
+	 /* >250 Hz STM backstop: high rates are 12-bit-RAW-only. Force 12-bit so the
+	  * 12-bit ADC prescaler path below is taken (CSV/16-bit are refused at the
+	  * command handlers — see STM32_CMD_SET_RESOLUTION / STM32_CMD_SET_LOGMODE). */
+	 if (ul_is_high_rate(sampleFreq))
+	 {
+		 adc_resolution = ADC_12_BITS;
+	 }
 
 	 htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
 	 htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -482,6 +503,18 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 			 break;
 
+		 case ADC_SAMPLE_RATE_500Hz:
+			 frame_set_lines_per_transaction(DATA_LINES_PER_SPI_TRANSACTION);
+			 htim3.Init.Prescaler = 127;   /* 64e6/((127+1)*1000) = 500 Hz */
+			 htim3.Init.Period = 1000;
+			 break;
+
+		 case ADC_SAMPLE_RATE_1000Hz:
+			 frame_set_lines_per_transaction(DATA_LINES_PER_SPI_TRANSACTION);
+			 htim3.Init.Prescaler = 63;    /* 64e6/((63+1)*1000) = 1000 Hz */
+			 htim3.Init.Period = 1000;
+			 break;
+
 	/* --- Phase 2 reference: candidate prescaler/period values for >250 Hz (see refactor spec docs/superpowers/specs/2026-06-05-uberlogger-stm32-refactor-design.md sec. 11) --- */
 	//	 case ADC_SAMPLE_RATE_500Hz:
 	//		 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
@@ -586,6 +619,8 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 	    return 1;
 	  }
 
+	 /* Record the active rate code for the v2 frame header (current_fs_code()). */
+	 _fs_code = sampleFreq;
 
 	 return 0;
 }

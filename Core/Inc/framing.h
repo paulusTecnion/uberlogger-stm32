@@ -1,31 +1,43 @@
-/* framing.h — owns the SPI message buffers, their exact byte layout, the
- * ping-pong/half bookkeeping, and the timestamp-coupling strategy.
- * Phase 1: byte-identical to the legacy twin-struct layout (refactor spec sec.5.1, sec.11). */
+/* framing.h — v2 SPI framing: owns the frame ring, the per-transaction base
+ * timestamp, and the 17 B/line block layout (refactor + phase2a specs).
+ * Phase-2A: per-transaction base timestamp; ESP32 reconstructs per-line time. */
 #ifndef _FRAMING_H
 #define _FRAMING_H
 #include "stdint.h"
-#include "main.h"             /* via main.h -> esp32_interface.h -> ul_protocol.h: s_date_time_t, spi_msg_1_t, spi_msg_2_t, layout #defines */
-#include "esp32_interface.h"  /* adc_resolution_t, NUM_ADC_CHANNELS */
+#include "ul_protocol.h"      /* ul_frame_hdr_t, UL_ADC_CH, flags, period table */
+#include "esp32_interface.h"  /* adc_resolution_t */
 
-void     frame_init(void);    /* set start/stop bytes, zero buffers (boot) */
-void     frame_reset(void);   /* reset write ptrs / halves / ready flags (logging start) */
-void     frame_set_lines_per_transaction(uint8_t n);
+/* Compile-time max lines per frame; runtime LINES_PER_FRAME (capacity) <= this. */
+#define UL_LINES_MAX     70
+/* Number of frame buffers in the ring (>=2). Tunable; see A4.
+ * DEPTH=3 keeps total bss under the ~7600 B budget (DEPTH=4 measured 7656). */
+#define UL_FRAME_DEPTH   3
 
-/* Deposit one sample line (called from the TIM3 sample-tick ISR).
- * Returns 1 when a half just became ready to transmit, else 0. */
-uint8_t  frame_append_line(const s_date_time_t *ts, uint8_t gpio,
-                           const uint16_t *adc, adc_resolution_t res);
+void     frame_init(void);                         /* boot: zero ring, set markers */
+void     frame_reset(void);                        /* logging start: reset ring/ptrs/overrun */
+void     frame_set_lines_per_transaction(uint8_t n);   /* config: set capacity (<= UL_LINES_MAX) */
 
-/* If a filled half is pending, hand back its buffer + byte length, clear the flag. Returns 1 if one was pending. */
+/* Begin a new frame if needed and append one sample line. Called from the TIM3
+ * sample-tick ISR. On the first line of a frame, captures base via the supplied
+ * epoch/subsec. gpio = GPIOB high byte; adc = 8 corrected/filtered u16; res
+ * selects the flags bit. Returns 1 when a frame just became ready, else 0.
+ * If no free ring slot exists, sets the overrun flag and drops the line. */
+uint8_t  frame_append_line(uint32_t base_epoch, uint16_t base_subsec, uint8_t fs_code,
+                           uint8_t gpio, const uint16_t *adc, adc_resolution_t res);
+
+/* Hand back the oldest ready frame's buffer + on-wire byte length; advance the
+ * read cursor and free the slot. Returns 1 if one was pending, else 0. */
 uint8_t  frame_take_ready(uint8_t **buf, uint16_t *len);
 
-/* For STM32_CMD_SEND_LAST_ADC_BYTES / single-shot: hand back the appropriate half.
- * Mirrors the legacy msg_1-vs-msg_2 selection EXACTLY. */
+/* For SEND_LAST/single-shot: hand back the current (partially) filled frame. */
 void     frame_take_last(uint8_t **buf, uint16_t *len, uint8_t singleshot, adc_resolution_t res);
 
-/* Accessors so the state machine can read framing-owned bookkeeping without an extern.
- * (legacy code read these directly in main.c) */
-uint8_t  frame_adc_16b_is_half(void);
-uint8_t  frame_adc_ready(void);
-uint32_t frame_write_ptr(void);
+/* Overrun flag (set when the ring was full at append time). Cleared by frame_reset(). */
+uint8_t  frame_overrun(void);
+
+/* True iff the NEXT frame_append_line() will start a new frame (line position 0).
+ * The TIM3 ISR uses this to read the RTC base exactly once per frame (single
+ * source of truth — no separate mirror counter that could desync on overrun). */
+uint8_t  frame_at_line_zero(void);
+
 #endif
