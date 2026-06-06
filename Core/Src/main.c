@@ -56,6 +56,7 @@
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
 #include "framing.h"
+#include "acquisition.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,11 +110,6 @@ static uint8_t _singleshot = 0;
 uint8_t _trigger_mode = TRIGGER_MODE_CONTINUOUS; // indicates if trigger mode is disabled (TRIGGER_MODE_CONTINUOUS) or by external trigger (TRIGGER_MODE_EXTERNAL)
 uint32_t _debounce_time_ext_input = 0;
 uint32_t _debounce_prev_time = 0 ;
-static RTC_TimeTypeDef current_time;
-static RTC_DateTypeDef current_date;
-
-// Variable for retrieving the
-s_date_time_t current_date_time;
 
 uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
@@ -124,12 +120,7 @@ uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 extern uint8_t spi_ctrl_state;
 uint8_t overrun = 0;
 uint8_t datardypin;
-uint8_t busy = 0;
-uint16_t adc16bBuffer[16];
-uint16_t adc12Buffer[8*8];
 uint16_t tbuffer[8];
-uint16_t correctedAdc = 0;
-uint16_t iirFilter[8];
 
 adc_resolution_t adc_resolution = ADC_12_BITS;
 adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
@@ -156,123 +147,12 @@ static void MX_TIM16_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// From https://github.com/LonelyWolf/stm32/blob/master/stm32l-dosfs/RTC.c
-// Convert epoch time to Date/Time structures
+// The ADC/TIM3 sample path and its HAL weak callbacks
+// (HAL_TIM_PeriodElapsedCallback, HAL_ADC_ConvHalfCpltCallback,
+// HAL_ADC_ConvCpltCallback, HAL_ADC_ErrorCallback, and the former Adc_start)
+// now live in acquisition.c.
 
 
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-
-	if (htim == &htim14)
-	{
-		// Disable interrupt
-//		TIM14->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
-
-		TIM14->CNT = 0;
-		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
-	}
-
-	if (htim == &htim16)
-	{
-//		TIM16->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
-		//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
-		TIM16->CNT = 0;
-		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
-	}
-
-	if (htim == &htim3 )
-	  {
-
-
-		/* spec sec.7: behavior preserved verbatim, do not 'fix' in Phase 1 */
-		if (busy)
-		{
-			Error_Handler();
-		}
-		busy = 1;
-
-
-		 // Check which version of the timer triggered this callback and toggle LED
-		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
-		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
-
-
-		current_date_time.year = current_date.Year;
-		current_date_time.month = current_date.Month;
-		current_date_time.date = current_date.Date;
-		current_date_time.hours = current_time.Hours;
-		current_date_time.minutes = current_time.Minutes;
-		current_date_time.seconds = current_time.Seconds;
-		// Next line not 100% correct!
-		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
-
-		// Deposit one sample line into the active half (buffer-writing owned by framing).
-		frame_append_line(&current_date_time, (uint8_t)(GPIOB->IDR >> 8), iirFilter, adc_resolution);
-
-		tim3_counter++;
-
-	  }
-	  busy = 0; // reset interrupt timeout
-}
-
-
-
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
-{
-
-		if (adc_resolution == ADC_12_BITS)
-		{
-			for (int i = 0; i<8; i++)
-			{
-				//  correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i]));
-			}
-
-		} else {
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				correctedAdc = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
-				// Then filter
-				iir_filter(&correctedAdc, &(iirFilter[i]), i);
-			}
-		}
-
-}
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-		
-		if (adc_resolution == ADC_12_BITS)
-		{
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i+8*4]));
-			}
-		
-		} else {
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				correctedAdc = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
-				// Then filter
-				iir_filter(&correctedAdc, &(iirFilter[i]), i);
-			}
-		}
-
-}
-
-void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
-{
-
-}
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
@@ -290,22 +170,6 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 
 		logging_en = 0;
 
-	}
-}
-
-void Adc_start()
-{
-	if (adc_resolution == ADC_12_BITS)
-	{
-		HAL_ADC_Start_DMA(
-		&hadc1,
-		(uint32_t*)(adc12Buffer),
-		8*8);
-	} else {
-		HAL_ADC_Start_DMA(
-		&hadc1,
-		(uint32_t*)(adc16bBuffer),
-		16);
 	}
 }
 
@@ -371,9 +235,7 @@ int main(void)
   frame_init();
 
 
-  HAL_ADCEx_Calibration_Start(&hadc1);
-  Adc_start();
-  busy = 1;
+  acq_init();
 
   /* USER CODE END 2 */
 
@@ -388,7 +250,7 @@ int main(void)
 //	  Config_Handler();
 	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
 
-	  busy = 0; // reset interrupt timeout
+	  acq_clear_busy(); // reset interrupt timeout
 
 	  // forward trigger input to esp32
 	  if (HAL_GPIO_ReadPin(GPIOB, ext_trigger_input))
@@ -528,7 +390,7 @@ int main(void)
 							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
 							  {
 
-								HAL_ADC_Stop_DMA(&hadc1);
+								acq_stop();
 
 								NextState = MAIN_CONFIG;
 							  }
@@ -590,7 +452,7 @@ int main(void)
 			  if (  main_exit_config )
 			  {
 				  NextState = MAIN_IDLE;
-				  Adc_start();
+				  acq_start();
 				  main_exit_config = 0 ;
 				  break;
 			  }

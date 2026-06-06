@@ -59,6 +59,12 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi);
 uint8_t spi_ctrl_msg_received();
 uint8_t spi_ctrl_isIdle();
 
+/* SPI watchdog (TIM14 TX / TIM16 RX) timeout tick. The single weak
+ * HAL_TIM_PeriodElapsedCallback lives in acquisition.c (it owns TIM3);
+ * it forwards the TIM14/TIM16 cases here so each branch stays with its
+ * owning module. No-op for any other timer. */
+void spi_ctrl_on_timeout_tick(TIM_HandleTypeDef *htim);
+
 
 
 //typedef enum uint32_t {
