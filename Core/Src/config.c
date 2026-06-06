@@ -31,6 +31,10 @@
 #include "framing.h"
 #include "app.h"
 
+/* Build-visible guard: the two vendored ul_protocol.h copies (STM32 + ESP32)
+ * must stay byte-identical; a stale copy bumps the version and fails here. */
+_Static_assert(UL_PROTOCOL_VERSION == 1, "ul_protocol.h copies are out of sync");
+
 //extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
 //extern DMA_HandleTypeDef hdma_adc1;

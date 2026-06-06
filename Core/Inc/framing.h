@@ -4,7 +4,7 @@
 #ifndef _FRAMING_H
 #define _FRAMING_H
 #include "stdint.h"
-#include "main.h"             /* s_date_time_t, spi_msg_1_t, spi_msg_2_t, layout #defines */
+#include "main.h"             /* via main.h -> esp32_interface.h -> ul_protocol.h: s_date_time_t, spi_msg_1_t, spi_msg_2_t, layout #defines */
 #include "esp32_interface.h"  /* adc_resolution_t, NUM_ADC_CHANNELS */
 
 void     frame_init(void);    /* set start/stop bytes, zero buffers (boot) */
