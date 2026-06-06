@@ -46,7 +46,6 @@ extern SPI_HandleTypeDef hspi1;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim14;
 extern TIM_HandleTypeDef htim16;
-extern uint8_t logging_en;
 
 /* Moved verbatim from main.c's HAL_TIM_PeriodElapsedCallback (TIM14/TIM16
  * branches). Invoked by the single weak callback that now lives in

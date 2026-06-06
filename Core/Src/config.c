@@ -29,6 +29,7 @@
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
 #include "framing.h"
+#include "app.h"
 
 //extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
@@ -36,14 +37,24 @@ extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim3;
 
 extern RTC_HandleTypeDef hrtc;
-extern uint8_t main_exit_config ;
-extern log_mode_t logMode;
-//extern uint8_t _data_lines_per_transaction;
+
+/* Task 8: config.c is the single owner of the parse-time settings written by the
+ * config command handlers. Consumers read them via the config_*() accessors below
+ * (declared in config.h) instead of externing the raw symbols.
+ * adc_resolution stays main/app-owned & extern-shared on purpose: it is read in the
+ * hot sample ISR (acquisition.c) where a function call would change ISR timing.
+ * main_exit_config is an app.c runtime flag set here via app_set_exit_config(). */
 extern adc_resolution_t adc_resolution;
-extern adc_channel_range_t adc_voltage_range_g;
-extern uint8_t _trigger_mode; // indicates if trigger mode is enabled or not.
-extern uint32_t _debounce_time_ext_input;
-extern volatile uint16_t ext_trigger_input;
+static log_mode_t          logMode = LOGMODE_CSV;
+static adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
+static uint8_t             _trigger_mode = TRIGGER_MODE_CONTINUOUS; // TRIGGER_MODE_CONTINUOUS=disabled, TRIGGER_MODE_EXTERNAL=external trigger
+static uint32_t            _debounce_time_ext_input = 0;
+static volatile uint16_t   ext_trigger_input = DIGITAL_IN_0_Pin;
+
+/* Trivial accessors (get-only) for the cross-module readers of the above. */
+uint8_t  config_trigger_mode(void)            { return _trigger_mode; }
+uint16_t config_ext_trigger_input(void)       { return ext_trigger_input; }
+uint32_t config_debounce_time_ext_input(void) { return _debounce_time_ext_input; }
 
 void Config_Handler(spi_cmd_t *  cmd)
 {
@@ -77,7 +88,7 @@ void Config_Handler(spi_cmd_t *  cmd)
 						  adc_set_lut(adc_voltage_range_g,  adc_resolution, i);
 					  }
 
-					  main_exit_config = 1;
+					  app_set_exit_config(1);
 				  }
 				  break;
 

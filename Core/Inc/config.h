@@ -42,6 +42,12 @@ uint8_t Config_Set_Time(uint32_t epoch);
 uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction);
 uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio);
 uint8_t Config_set_debounceTime(uint32_t debounceTime);
+
+/* Task 8: read-only accessors for config-owned settings consumed by app.c.
+ * Trivial getters; no validation, no side effects. */
+uint8_t  config_trigger_mode(void);
+uint16_t config_ext_trigger_input(void);
+uint32_t config_debounce_time_ext_input(void);
 #endif
 
 

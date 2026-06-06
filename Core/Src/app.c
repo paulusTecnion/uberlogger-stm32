@@ -33,31 +33,29 @@ uint8_t cmd_buffer[ 20];
 
 TIM_HandleTypeDef htim3_bak;
 
-uint8_t main_exit_config = 0;           /* shared: config.c externs this */
+static uint8_t main_exit_config = 0;    /* app-owned; config.c sets via app_set_exit_config() */
 
 volatile uint16_t data_buffer_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
-volatile uint16_t ext_trigger_input = DIGITAL_IN_0_Pin;   /* shared: config.c */
+/* ext_trigger_input / _trigger_mode / _debounce_time_ext_input are config-owned
+ * settings now (config.c); read here via config_*() accessors. */
 uint8_t ext_trigger_input_value = 0;
 uint8_t ext_trigger_input_value_debounced = 0;
 
 static uint8_t _singleshot = 0;
-uint8_t _trigger_mode = TRIGGER_MODE_CONTINUOUS; // indicates if trigger mode is disabled (TRIGGER_MODE_CONTINUOUS) or by external trigger (TRIGGER_MODE_EXTERNAL)   /* shared: config.c */
-uint32_t _debounce_time_ext_input = 0;  /* shared: config.c externs this */
 uint32_t _debounce_prev_time = 0 ;
 
 uint16_t tim3_counter = 0;              /* shared: acquisition.c externs this */
 uint8_t tim14_event = 0;
 
-log_mode_t logMode = LOGMODE_CSV;       /* shared: config.c externs this */
+/* logMode / adc_voltage_range_g are config-owned settings now (config.c). */
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 uint8_t overrun = 0;
 uint8_t datardypin;
 uint16_t tbuffer[8];
 
-adc_resolution_t adc_resolution = ADC_12_BITS;            /* shared: acquisition.c/framing.c/config.c */
-adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;  /* shared: config.c */
+adc_resolution_t adc_resolution = ADC_12_BITS;            /* shared: acquisition.c/framing.c/config.c (hot-ISR read, stays extern) */
 uint16_t adcCounter = 0;
 
 
@@ -81,6 +79,14 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 }
 
 
+/* Setter so config.c can drive the app-owned CONFIG-exit flag without externing
+ * the raw symbol. Trivial assignment; no side effects. */
+void app_set_exit_config(uint8_t v)
+{
+	main_exit_config = v;
+}
+
+
 void app_init(void)
 {
 	/* One-time pre-loop state init. The state-machine globals are initialised
@@ -99,7 +105,7 @@ void app_run_once(void)
 	  acq_clear_busy(); // reset interrupt timeout
 
 	  // forward trigger input to esp32
-	  if (HAL_GPIO_ReadPin(GPIOB, ext_trigger_input))
+	  if (HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input()))
 	  {
 	      // Input is high and hasn't been debounced yet
 	      if (ext_trigger_input_value_debounced == 0)
@@ -110,7 +116,7 @@ void app_run_once(void)
 	      }
 
 	      // Check if debounce time has passed
-	      if ((HAL_GetTick() - _debounce_prev_time > _debounce_time_ext_input))
+	      if ((HAL_GetTick() - _debounce_prev_time > config_debounce_time_ext_input()))
 	      {
 	    	  ext_trigger_input_value = 1;  // Set the output high
 	      }
@@ -173,7 +179,7 @@ void app_run_once(void)
 			}
 
 
-	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL))
+	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL))
 		  {
 //				  if (overrun)
 //				  {
@@ -188,7 +194,7 @@ void app_run_once(void)
 			  HAL_Delay(50);
 			  // Set ADC to single conversion measure mode
 
-			  if (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL && logging_en)
+			  if (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL && logging_en)
 			  {
 				  NextState = MAIN_WAIT_FOR_TRIGGER;
 			  } else {
@@ -200,7 +206,7 @@ void app_run_once(void)
 
 		  case MAIN_IDLE:
 			  // In case logging gets enabled and we are in continuous mode, start the ADC
-			  if (logging_en && spi_ctrl_isIdle() && (_trigger_mode != TRIGGER_MODE_EXTERNAL))
+			  if (logging_en && spi_ctrl_isIdle() && (config_trigger_mode() != TRIGGER_MODE_EXTERNAL))
 			  {
 
 				  tim3_counter = 0;
@@ -214,7 +220,7 @@ void app_run_once(void)
 				  HAL_TIM_Base_Start_IT(&htim3);
 
 
-			  } else if (logging_en && spi_ctrl_isIdle() && _trigger_mode == TRIGGER_MODE_EXTERNAL) {
+			  } else if (logging_en && spi_ctrl_isIdle() && config_trigger_mode() == TRIGGER_MODE_EXTERNAL) {
 				 // In this case we wait for the external trigger to become high
 				  _debounce_prev_time = HAL_GetTick();
 				  NextState = MAIN_WAIT_FOR_TRIGGER;
