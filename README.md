@@ -59,6 +59,18 @@ The project contains the following key components:
 - **STM32G030C6TX_FLASH.ld**: Linker script
 - **stm32g030c6.ioc**: STM32CubeMX configuration file
 
+### Module map
+
+The firmware is split into focused modules under `Core/Src/` (with matching headers in `Core/Inc/`). The split is behavior-preserving — it reorganizes the code without changing what runs on the device.
+
+- **`main`** — boot / CubeMX init only (`HAL_Init`, `SystemClock_Config`, the `MX_*_Init` peripheral setup, `Error_Handler`). A thin shell that hands off to `app`.
+- **`app`** — the application state machine (`IDLE` / `CONFIG` / `LOGGING` / `SINGLE_SHOT` / `WAIT_FOR_TRIGGER`), trigger debounce, the EXTI (GPIO interrupt) callbacks, and IDLE-state command dispatch.
+- **`acquisition`** — the ADC + TIM3 sample path and the per-sample HAL ISR callbacks that move samples out of the ADC.
+- **`framing`** — the SPI message buffers, the exact wire byte-layout, and the ping-pong / half-buffer bookkeeping.
+- **`spi_ctrl`** — the SPI transport plus the TX/RX timeout watchdogs (TIM14 / TIM16).
+- **`config`** — settings parsing and the `STM32_CMD_*` command handlers.
+- **`Core/Inc/ul_protocol.h`** — the shared, cross-repo SPI protocol contract. This is the single source of truth for the byte layout exchanged with the ESP32; the human-readable spec lives in [`docs/protocol/uberlogger-spi-protocol.md`](docs/protocol/uberlogger-spi-protocol.md).
+
 ### 4. Build the Project
 
 1. Right-click on the project in the Project Explorer
@@ -91,7 +103,7 @@ The project includes a pre-configured `.ioc` file. To modify the configuration:
 ### Key Configuration Details
 
 - **MCU**: STM32G030C6TX
-- **Clock**: 16 MHz internal oscillator
+- **Clock**: 64 MHz SYSCLK from a 16 MHz HSE crystal via the PLL (PLLM=1, PLLN=8, PLLR=2 → 16 MHz × 8 / 2 = 64 MHz). See `SystemClock_Config` in `Core/Src/main.c`.
 - **ADC**: 8 channels with DMA
 - **SPI**: Communication with ESP32
 - **Timers**: ADC sampling and SPI communication timing
@@ -134,6 +146,31 @@ Below you see the connector shown on the UL01B with the pinout the connector to 
 3. **Flash** to device using ST-Link or other programmer
 4. **Test** functionality
 5. **Debug** if needed using breakpoints and watch variables
+
+### Headless (command-line) build
+
+The project can be built from the command line using the STM32CubeIDE headless builder — useful for CI or quick verification without opening the IDE:
+
+```bash
+/opt/st/stm32cubeide_2.1.1/headless-build.sh \
+  -data "$HOME/.stm32cubeide_ul_ws" \
+  -import /home/paulus-potter/dev/uberlogger-stm32 \
+  -build stm32g030c6/Debug
+```
+
+A clean build ends with `Build Finished` and `0 errors`, and prints a `size` line for the resulting ELF (`text`/`data`/`bss`). Adjust the IDE path / workspace / repo path for your machine. The `ota_support.bin` post-build step may fail harmlessly (see [Known Build Issue](#-known-build-issue)); the firmware itself still builds.
+
+Flash the built ELF with:
+
+```bash
+STM32_Programmer_CLI -c port=SWD -w Debug/stm32g030c6.elf -rst
+```
+
+### Bench-matrix verification
+
+Because this firmware drives real hardware over SPI, behavior is verified on-device rather than by unit tests alone. The bench harness lives in [`tools/bench/`](tools/bench/) — `ul_matrix.py` drives a real device over the ESP32 HTTP API (`http://192.168.4.1`) across a matrix of sample rates / resolutions / modes, and checks both the CSV rate/structure and the RAW frame byte-structure against a pristine baseline. See [`tools/bench/README.md`](tools/bench/README.md) for how to run it.
+
+The SPI wire format that the bench harness checks against is defined by `Core/Inc/ul_protocol.h` and documented in [`docs/protocol/uberlogger-spi-protocol.md`](docs/protocol/uberlogger-spi-protocol.md).
 
 ## 📚 Additional Resources
 
