@@ -264,6 +264,12 @@ void app_run_once(void)
 							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
 							  break;
 
+						  case STM32_CMD_GET_OVERRUN:
+							  resp.command = STM32_CMD_GET_OVERRUN;
+							  resp.data    = frame_overrun();   /* 0/1, sticky until next frame_reset */
+							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+							  break;
+
 						  case STM32_CMD_NOP:
 					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
 //							  resp.command = CMD_NOP;
