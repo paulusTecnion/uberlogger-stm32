@@ -25,38 +25,37 @@ extern TIM_HandleTypeDef htim3;
  * declarations resolve here; purely loop-local ones are static.
  * Task 8 will consolidate ownership of the settings-ish globals.            */
 
-uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
-uint8_t logging_en = 0;                 /* shared: spi_ctrl.c externs this */
-uint8_t msgRx = 0;
-uint8_t cmd_buffer[ 20];
+static uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
+static uint8_t logging_en = 0;          /* app-private: set by the EXTI callbacks, read by the state machine */
+static uint8_t msgRx = 0;
+static uint8_t cmd_buffer[ 20];
 //spi_cmd_t cmd_buffer;
 
-TIM_HandleTypeDef htim3_bak;
+static TIM_HandleTypeDef htim3_bak;
 
 static uint8_t main_exit_config = 0;    /* app-owned; config.c sets via app_set_exit_config() */
 
-volatile uint16_t data_buffer_write_ptr = 0;
-volatile uint32_t time_result_write_ptr = 0;
+static volatile uint16_t data_buffer_write_ptr = 0;
+static volatile uint32_t time_result_write_ptr = 0;
 /* ext_trigger_input / _trigger_mode / _debounce_time_ext_input are config-owned
  * settings now (config.c); read here via config_*() accessors. */
-uint8_t ext_trigger_input_value = 0;
-uint8_t ext_trigger_input_value_debounced = 0;
+static uint8_t ext_trigger_input_value = 0;
+static uint8_t ext_trigger_input_value_debounced = 0;
 
 static uint8_t _singleshot = 0;
-uint32_t _debounce_prev_time = 0 ;
+static uint32_t _debounce_prev_time = 0 ;
 
 uint16_t tim3_counter = 0;              /* shared: acquisition.c externs this */
-uint8_t tim14_event = 0;
+static uint8_t tim14_event = 0;
 
 /* logMode / adc_voltage_range_g are config-owned settings now (config.c). */
-uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
-uint8_t overrun = 0;
-uint8_t datardypin;
-uint16_t tbuffer[8];
+uint8_t overrun = 0;                    /* app-private, but kept extern: static-izing lets the compiler const-fold the only (read-only) use and drop a branch, shifting the image */
+static uint8_t datardypin;
+static uint16_t tbuffer[8];
 
 adc_resolution_t adc_resolution = ADC_12_BITS;            /* shared: acquisition.c/framing.c/config.c (hot-ISR read, stays extern) */
-uint16_t adcCounter = 0;
+static uint16_t adcCounter = 0;
 
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)

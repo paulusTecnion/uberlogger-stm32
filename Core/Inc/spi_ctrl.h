@@ -47,9 +47,7 @@ typedef enum spi_ctrl_state_e {
 } spi_ctrl_state_t;
 
 
-void spi_ctrl_receive_abort();
 void spi_ctrl_loop();
-uint8_t spi_ctrl_get_rx_len();
 HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length);
 //HAL_StatusTypeDef spi_ctrl_send_cmd(spi_cmd_esp_t cmd_esp, spi_cmd_resp_t cmd);
 HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length);

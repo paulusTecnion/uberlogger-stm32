@@ -41,7 +41,7 @@
 #include "main.h"
 
 uint8_t spi_ctrl_state = SPI_CTRL_IDLE;
-uint8_t _curr_spi_state = SPI_CTRL_IDLE, _next_spi_state = SPI_CTRL_IDLE;
+static uint8_t _curr_spi_state = SPI_CTRL_IDLE, _next_spi_state = SPI_CTRL_IDLE;
 extern SPI_HandleTypeDef hspi1;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim14;
