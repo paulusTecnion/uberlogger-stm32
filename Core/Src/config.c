@@ -28,6 +28,7 @@
 #include "stm32g0xx_hal.h"
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
+#include "framing.h"
 
 //extern SPI_HandleTypeDef * hspi1;
 extern ADC_HandleTypeDef hadc1;
@@ -40,7 +41,6 @@ extern log_mode_t logMode;
 //extern uint8_t _data_lines_per_transaction;
 extern adc_resolution_t adc_resolution;
 extern adc_channel_range_t adc_voltage_range_g;
-extern uint8_t spi_lines_per_transaction;
 extern uint8_t _trigger_mode; // indicates if trigger mode is enabled or not.
 extern uint32_t _debounce_time_ext_input;
 extern volatile uint16_t ext_trigger_input;
@@ -380,7 +380,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 case ADC_SAMPLE_RATE_1Hz:
 			 // Reconfig the timer
 
-			 spi_lines_per_transaction = 1;
+			 frame_set_lines_per_transaction(1);
 			 htim3.Init.Prescaler = 1000-1;
 			 htim3.Init.Period = 64000 ;
 
@@ -390,7 +390,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 case ADC_SAMPLE_RATE_2Hz:
 				 // Reconfig the timer
 
-			 spi_lines_per_transaction = 2;
+			 frame_set_lines_per_transaction(2);
 			 htim3.Init.Prescaler = 500-1;
 			 htim3.Init.Period = 64000 ;
 
@@ -399,14 +399,14 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 
 		 case ADC_SAMPLE_RATE_5Hz:
 
-			 spi_lines_per_transaction = 5;
+			 frame_set_lines_per_transaction(5);
 			 htim3.Init.Prescaler = 200-1;
 			 htim3.Init.Period = 64000 ;
 				break;
 
 		 case ADC_SAMPLE_RATE_10Hz:
 
-			 spi_lines_per_transaction = 10;
+			 frame_set_lines_per_transaction(10);
 			 htim3.Init.Prescaler = 100-1;
 			 htim3.Init.Period = 64000;
 
@@ -421,13 +421,13 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 		 case ADC_SAMPLE_RATE_25Hz:
 
 
-			 spi_lines_per_transaction = 25;
+			 frame_set_lines_per_transaction(25);
 			htim3.Init.Prescaler = 100-1;
 			htim3.Init.Period = 25600;
 			 break;
 
 		 case ADC_SAMPLE_RATE_50Hz:
-			 spi_lines_per_transaction= 50;
+			 frame_set_lines_per_transaction(50);
 			htim3.Init.Prescaler = 100-1;
 			htim3.Init.Period = 12800;
 	//		htim3.Init.Prescaler = 639;
@@ -436,7 +436,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 			 break;
 
 		 case 	ADC_SAMPLE_RATE_100Hz:
-			 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+			 frame_set_lines_per_transaction(DATA_LINES_PER_SPI_TRANSACTION);
 	//		if (is16bitmode)
 	//		{
 
@@ -454,7 +454,7 @@ uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
 			 break;
 
 		 case 	ADC_SAMPLE_RATE_250Hz:
-			 spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
+			 frame_set_lines_per_transaction(DATA_LINES_PER_SPI_TRANSACTION);
 	//		if (adc_resolution == 1)
 	//		{
 				// prescale 8

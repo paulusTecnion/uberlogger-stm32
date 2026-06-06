@@ -55,6 +55,7 @@
 #include "spi_ctrl.h"
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
+#include "framing.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -99,13 +100,11 @@ ADC_HandleTypeDef hadc1_bak;
 uint8_t main_exit_config = 0;
 
 volatile uint16_t data_buffer_write_ptr = 0;
-volatile uint32_t gpio_result_write_ptr = 0;
 volatile uint32_t time_result_write_ptr = 0;
 volatile uint16_t ext_trigger_input = DIGITAL_IN_0_Pin;
 uint8_t ext_trigger_input_value = 0;
 uint8_t ext_trigger_input_value_debounced = 0;
 
-static uint8_t adc_is_half = 0, adc_16b_is_half=0;
 static uint8_t _singleshot = 0;
 uint8_t _trigger_mode = TRIGGER_MODE_CONTINUOUS; // indicates if trigger mode is disabled (TRIGGER_MODE_CONTINUOUS) or by external trigger (TRIGGER_MODE_EXTERNAL)
 uint32_t _debounce_time_ext_input = 0;
@@ -119,18 +118,11 @@ s_date_time_t current_date_time;
 uint16_t tim3_counter = 0;
 uint8_t tim14_event = 0;
 
-uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
-
-uint16_t  *adc_data_u16;
-
-spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
-spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
-
 log_mode_t logMode = LOGMODE_CSV;
 uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 extern uint8_t spi_ctrl_state;
-uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
+uint8_t overrun = 0;
 uint8_t datardypin;
 uint8_t busy = 0;
 uint16_t adc16bBuffer[16];
@@ -144,9 +136,6 @@ adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
 uint16_t adcCounter = 0;
 
 extern lut_t * active_lut_table[NUM_ADC_CHANNELS];
-
-
-uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
 
 /* USER CODE END PV */
 
@@ -200,6 +189,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	  {
 
 
+		/* spec sec.7: behavior preserved verbatim, do not 'fix' in Phase 1 */
 		if (busy)
 		{
 			Error_Handler();
@@ -222,71 +212,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		// Next line not 100% correct!
 		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
 
-		// Are still in the first ADC half?
-		if (!gpio_is_half)
-		{
-			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-//			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			spi_msg_slow_freq_1->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			memcpy((void*)&spi_msg_slow_freq_1->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-//			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
-			spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr +1 ;
-		} else { // If not, we fill the second part
-//			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			spi_msg_slow_freq_2->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			memcpy((void*)&spi_msg_slow_freq_2->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-//			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
-			spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr +1 ;
-		}
-//
-
-
-		// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
-		if (adc_resolution == ADC_16_BITS)
-		{
-			if (!adc_16b_is_half)
-			{
-				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			} else {
-				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			}
-		} else {
-			if (!adc_is_half)
-			{
-        // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode. 
-//				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			} else {
-//				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			}
-		}
-
+		// Deposit one sample line into the active half (buffer-writing owned by framing).
+		frame_append_line(&current_date_time, (uint8_t)(GPIOB->IDR >> 8), iirFilter, adc_resolution);
 
 		tim3_counter++;
-		gpio_result_write_ptr++;
-
-
-		if (gpio_result_write_ptr >= spi_lines_per_transaction)
-		{
-			gpio_is_half = !gpio_is_half;
-			gpio_ready = 1;
-
-			// when in 16 bit mode, manually set adc_ready flag
-			if (adc_resolution == ADC_16_BITS)
-			{
-				adc_16b_is_half = ~adc_16b_is_half;
-				// adc_ready = 1;
-			} else {
-				adc_is_half = ~adc_is_half;
-		  }
-		  adc_ready = 1;
-		}
-
-		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
-		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
 
 	  }
 	  busy = 0; // reset interrupt timeout
@@ -422,7 +351,6 @@ int main(void)
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
-  adc_data_u16 = (uint16_t*)spi_msg_slow_freq_1->adcData;
 
   // Backup current adc settings
   hadc1_bak = hadc1;
@@ -440,16 +368,7 @@ int main(void)
   CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
   CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
-  memset(spi_msg_slow_freq_1->adcData, 0, sizeof(spi_msg_slow_freq_1->adcData));
-  memset(spi_msg_slow_freq_2->adcData, 0, sizeof(spi_msg_slow_freq_2->adcData));
-
-  memset(data_buffer, 0, sizeof(data_buffer));
-
-  spi_msg_slow_freq_1->startByte[0] = 0xFA;
-  spi_msg_slow_freq_1->startByte[1] = 0xFB;
-
-  spi_msg_slow_freq_2->stopByte[0] = 0xFB;
-  spi_msg_slow_freq_2->stopByte[1] = 0xFA;
+  frame_init();
 
 
   HAL_ADCEx_Calibration_Start(&hadc1);
@@ -509,13 +428,8 @@ int main(void)
 
 	  				// start the ADC timer
 	  			  tim3_counter = 0;
-				  adc_is_half = 0;
-				  adc_16b_is_half = 0;
-				  adc_ready = 0;
-				  gpio_result_write_ptr = 0;
+				  frame_reset();
 				  time_result_write_ptr = 0;
-				  gpio_is_half = 0;
-				  gpio_ready = 0;
 				  TIM3->CNT = 0;
 				  NextState = MAIN_LOGGING;
 				  HAL_TIM_Base_Start_IT(&htim3);
@@ -531,45 +445,23 @@ int main(void)
 	  		// Forward the state of the external input to the ESP32 via EXT_PIN_VALUE_Pin
 	  		// This way the ESP32 knows logging has stopped and data needs to be retrieved.
 
-	  		if (adc_ready && gpio_ready)
-			{
+	  		{
+				uint8_t *buf; uint16_t len;
+				if (frame_take_ready(&buf, &len))
+				{
 	//			gpio_result_write_ptr = 0;
 	//			time_result_write_ptr = 0;
-				// Half way we have the pointers start at the beginning
+					// Half way we have the pointers start at the beginning
 //				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
 //				{
 //					overrun = 1;
 //				}
 
-				tim3_counter=0;
+					tim3_counter=0;
 
-				if (adc_resolution == ADC_16_BITS)
-				{
+					spi_ctrl_send(buf, len);
 
-					if (adc_16b_is_half)
-					{
-	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-					}
-
-				} else {
-
-					if (adc_is_half)
-					{
-	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-					}
 				}
-
-				adc_ready = 0;
-				gpio_ready = 0;
-
 			}
 
 
@@ -604,13 +496,8 @@ int main(void)
 			  {
 
 				  tim3_counter = 0;
-				  adc_is_half = 0;
-				  adc_16b_is_half = 0;
-				  adc_ready = 0;
-				  gpio_result_write_ptr = 0;
+				  frame_reset();
 				  time_result_write_ptr = 0;
-				  gpio_is_half = 0;
-				  gpio_ready = 0;
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
 
@@ -660,29 +547,16 @@ int main(void)
 							  break;
 
 						  case STM32_CMD_SEND_LAST_ADC_BYTES:
-							  if (adc_resolution == ADC_16_BITS)
+						  {
+							  uint8_t *buf; uint16_t len;
+							  frame_take_last(&buf, &len, _singleshot, adc_resolution);
+							  spi_ctrl_send(buf, len);
+							  // Preserve legacy _singleshot reset: it only happened in the 16-bit (!adc_16b_is_half || _singleshot) branch; the 12-bit path never reset it here. Do NOT add a 12-bit reset without tracing the caller flow.
+							  if (adc_resolution == ADC_16_BITS && (!frame_adc_16b_is_half() || _singleshot))
 							  {
-								  if (!adc_16b_is_half || _singleshot)
-								  {
-									  // adc_is_half == 1 means the last message sent was spi_msg_1
-									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-									  _singleshot = 0;
-								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-								  }
-							  } else {
-								  if (!adc_is_half || _singleshot)
-								  {
-									  // adc_is_half == 1 means the last message sent was spi_msg_1
-									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-								  }
+								  _singleshot = 0;
 							  }
+						  }
 
 
 							  break;
@@ -737,11 +611,7 @@ int main(void)
 		  {
 			  htim3_bak = htim3;
 			  tim3_counter = 0;
-			  adc_is_half = 0;
-			  adc_16b_is_half = 0;
-			  gpio_is_half = 0;
-			  adc_ready = 0;
-			  gpio_result_write_ptr = 0;
+			  frame_reset();
 			  time_result_write_ptr = 0;
         _singleshot = 1;
 
@@ -761,7 +631,7 @@ int main(void)
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }
 			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr >= 1 && adc_ready)
+			  if (frame_write_ptr() >= 1 && frame_adc_ready())
 			  {
 				 HAL_TIM_Base_Stop_IT(&htim3);
 				 }
