@@ -25,9 +25,11 @@
 #include "framing.h"
 #include "string.h"
 
-/* One ring slot: a max-sized frame. Only [0..line_count) lines are valid; the
- * gpio block sits at the fixed offset capacity*16 after the header so the layout
- * is stride-stable (ESP32 finds gpio without per-frame offset math). */
+/* One ring slot: a max-sized frame. Only [0..line_count) lines are valid. The
+ * wire frame is CAPACITY-PACKED: the gpio block starts immediately after the adc
+ * block of `capacity` lines, i.e. at byte offset 14 + capacity*16. It is NOT at a
+ * fixed stride; the gpio[] field below only coincides with the wire position when
+ * capacity == UL_LINES_MAX. The field is kept solely to size the slot. */
 typedef struct {
     ul_frame_hdr_t hdr;
     uint16_t adc[UL_LINES_MAX * UL_ADC_CH];   /* aligned: hdr is 14 (even) */
@@ -94,7 +96,13 @@ uint8_t frame_append_line(uint32_t base_epoch, uint16_t base_subsec, uint8_t fs_
     }
     ul_frame_buf_t *f = &ring[wr_slot];
     memcpy(&f->adc[line_idx * UL_ADC_CH], adc, UL_ADC_CH * 2);  /* 8 x u16 */
-    f->gpio[line_idx] = gpio;
+    /* GPIO is capacity-packed on the wire: it starts immediately after the
+     * adc block of `capacity` lines (byte offset 14 + capacity*16), NOT at the
+     * fixed gpio[] array. For capacity < UL_LINES_MAX this lands in the unused
+     * tail of adc[]; for capacity == UL_LINES_MAX it coincides with gpio[]. This
+     * makes the first (14 + capacity*UL_LINE_BYTES) bytes a valid capacity-packed
+     * frame matching the wire length and the ESP32/convert_raw decoder. */
+    ((uint8_t *)f->adc)[(uint32_t)capacity * UL_ADC_CH * 2 + line_idx] = gpio;
     line_idx++;
     f->hdr.line_count = line_idx;
 
