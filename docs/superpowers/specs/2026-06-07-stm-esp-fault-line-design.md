@@ -25,12 +25,17 @@ matters most.
 ## Goal
 
 A dedicated **out-of-band STM→ESP "fault" line** that asserts on **ring overrun OR SPI
-TX-timeout/tear**, letting the ESP recover gracefully (discard torn frame → resync, or
-finalize cleanly on overrun) instead of hard-aborting with `FAULTY_DATA`. Robust even when
-the SPI link is saturated.
+TX-timeout/tear**, letting the ESP **stop the session cleanly and report the correct error**
+out-of-band — instead of hanging or hard-aborting with `FAULTY_DATA` only after a torn frame
+happens to reach the parser. Robust even when the SPI link is saturated.
 
-Non-goal: increasing raw 1000 Hz throughput. This makes failures clean, detectable, and
-recoverable; it does not by itself guarantee 1000 Hz is a sustainable continuous rate.
+This is a data-acquisition device: a lost or corrupt frame is a hard fault, never a
+recoverable event. Any fault stops logging and finalizes; the device never silently continues
+a stream with a gap in it, and never polls the STM over SPI mid-stream.
+
+Non-goal: increasing raw 1000 Hz throughput, or recovering/continuing through a tear. This
+makes failures clean and correctly reported; it does not make 1000 Hz a sustainable continuous
+rate (if 1000 Hz faults under load, the fault line will stop it cleanly and say why).
 
 ## Hardware: the line
 
@@ -88,39 +93,47 @@ ESP's no-data/timeout path already covers. `GET_OVERRUN` (sticky on the STM unti
 No explicit revert for flashing is needed — the pre-flash STM reset reverts PA10 to
 bootloader RX.
 
-## ESP firmware — react & disambiguate
+## ESP firmware — react (any fault stops the session)
+
+**Design decision (DAQ correctness):** this is a data-acquisition device. A ring overrun or a
+torn frame means lost/corrupt samples — the device must NOT silently continue as if the data
+stream were intact. So **any fault edge stops logging and finalizes the session**. There is no
+resync-and-continue and no mid-stream recovery. Equally important: **the ESP never issues an
+SPI command while logging is active** — the STM only services commands in `MAIN_IDLE`
+(`app.c:276`), so a mid-stream query cannot be answered and would stall the link.
 
 IO4 rising-edge ISR (mirrors the existing `gpio_handshake_isr_handler`): set a volatile
 `fault_pending` flag and `vTaskNotifyGiveFromISR` the logger task.
 
-On `fault_pending`, the logger task:
-1. Aborts/ignores the in-flight SPI read and discards any partial frame.
-2. Queries `STM32_CMD_GET_OVERRUN` (up to **3 attempts**, since the query is itself a SPI
-   transaction that may tear under the same load):
-   - **overrun == 1** → STM stopped on ring overrun → **finalize the session cleanly**, set
-     `ERR_LOGGER_DATA_OVERRUN`, expose `OVERRUN=1`.
-   - **overrun == 0** → SPI tear → **discard & resync** (wait for next `DATA_RDY`), continue
-     logging, increment a resync counter.
-   - **query unreadable after retries** → treat as tear (discard & resync).
+On `fault_pending`, in `LOGTASK_LOGGING_BUSY` (checked BEFORE the `_dataReceived` path):
+1. Discard any partial frame: `_dataReceived = 0`, `spi_ctrl_reset_rx_state()`.
+2. Mark a fault-stop occurred (a `_faultStop` flag), then `LogTask_stop()` + `finalwrite = 1`.
+   **No SPI query is issued here.**
 
-`decodeV2Frame`'s marker/count validation remains as a backstop: a torn frame that slips
-through is still caught, but the fault path now lets the ESP *expect* the garbage and recover
-rather than latch `FAULTY_DATA`.
+The session then proceeds to `LOGTASK_LOGGING_FINAL`, where the STM is back in `MAIN_IDLE` and
+the **existing** end-of-session `STM32_CMD_GET_OVERRUN` query runs (the only place it is valid).
+If `_faultStop` is set, the error code is assigned from that result:
+- ring overran (`Logger_getOverrun()==1`) → `ERR_LOGGER_DATA_OVERRUN`, `OVERRUN=1`;
+- otherwise (a SPI tear) → `ERR_LOGGER_STM32_FAULTY_DATA`.
+
+Valid data already flushed before the fault is preserved (the torn frame was discarded, not
+written). `decodeV2Frame`'s marker/count validation remains as a backstop.
 
 The ESP must manage IO4 mode: configure input+ISR at logging start, remove the ISR and hand
 IO4 back to the UART driver when entering firmware-update, and restore input+ISR afterward.
 
 ## Error semantics
 
-- **Recovered tear:** does **not** set `ERR_LOGGER_STM32_FAULTY_DATA`. Increments
-  `RESYNC_COUNT` (new field in `/ajax/getStatus`) for soak visibility.
-- **Ring overrun:** `ERR_LOGGER_DATA_OVERRUN` + `OVERRUN=1`, clean finalize — same outcome as
-  today, but now reliably triggered out-of-band.
-- **Tear storm:** if resyncs exceed **10 within any rolling 1-second window**, escalate to a
-  hard error (`ERR_LOGGER_STM32_FAULTY_DATA`) + finalize, so a genuinely unusable link fails
-  loudly rather than resyncing forever. (Default; tune at the HW gate.)
-- **`/ajax/getStatus`** gains `RESYNC_COUNT` (cumulative resync events for the session).
-- **No wire-format change.** `UL_PROTOCOL_VERSION` stays 2.
+- **Any fault stops the session** — there is no resync/continue. The torn frame is discarded;
+  previously-flushed valid data is kept; logging finalizes.
+- **Ring overrun:** `ERR_LOGGER_DATA_OVERRUN` + `OVERRUN=1`, clean finalize — now reliably
+  triggered out-of-band by the fault line (no dependence on a frame surviving the SPI path).
+- **SPI tear:** `ERR_LOGGER_STM32_FAULTY_DATA` + clean finalize. A tear is treated as a serious
+  fault, not a recoverable event, because lost samples are unacceptable for a DAQ device.
+- Error code is assigned at `LOGTASK_LOGGING_FINAL` from the (now-valid) overrun query, gated on
+  the `_faultStop` flag so a normal user-stop is unaffected.
+- **No `RESYNC_COUNT`** (there is no resync). **No mid-stream SPI polling.** **No tear-storm
+  window.** **No wire-format change** — `UL_PROTOCOL_VERSION` stays 2.
 
 **Firmware compatibility (graceful degradation, no version gate):**
 - Old STM + new ESP: STM never drives PA10 → ESP sees IO4 low → no fault edge → falls back to
@@ -129,11 +142,14 @@ IO4 back to the UART driver when entering firmware-update, and restore input+ISR
 
 ## Testing / validation (hardware gate)
 
-1. **1000 Hz soak (rate 14)** under 4-worker API load → tears become graceful resyncs (no
-   `ERR 8` abort); session completes; `RESYNC_COUNT` reflects tears; `OVERRUN=0`.
-2. **Forced ring overrun** (starve the ESP) → `OVERRUN=1`, clean finalize,
-   `ERR_LOGGER_DATA_OVERRUN`, **no** `FAULTY_DATA`.
-3. **500 Hz regression** (rate 13) → still PASS (zero overrun, no dropped frames, monotonic).
+1. **1000 Hz soak (rate 14)** under 4-worker API load → if a fault occurs, the session stops
+   **promptly** (no ~15 s stall, no hang) and finalizes with a correct error: `OVERRUN=1` +
+   `ERR_LOGGER_DATA_OVERRUN` if the ring overran, or `ERR_LOGGER_STM32_FAULTY_DATA` for a tear.
+   If 1000 Hz runs clean under load, no fault fires and it completes normally.
+2. **Forced ring overrun** (starve the ESP) → fault line fires → `OVERRUN=1`, clean finalize,
+   `ERR_LOGGER_DATA_OVERRUN`. The stop is driven by the fault edge, not by waiting for a
+   timeout.
+3. **500 Hz regression** (rate 13) → still PASS (zero faults, no dropped frames, monotonic).
 4. **Firmware-update regression** — flash the STM via the ESP after the change, proving the
    PA10/IO4 direction handoff did not break the bootloader UART. *(Riskiest interaction —
    explicitly gated.)*
