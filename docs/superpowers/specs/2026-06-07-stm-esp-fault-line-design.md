@@ -59,14 +59,27 @@ A small fault-line helper in the STM (e.g. `fault_line.{c,h}` or folded into `sp
 - `fault_line_init_output(void)` — configure PA10 as push-pull output, drive LOW. Called at
   logging init.
 - `fault_line_assert(void)` — drive PA10 HIGH. Latched (stays HIGH until cleared).
-- `fault_line_clear(void)` — drive PA10 LOW. Called from `app.c` at the session-start
-  transition (WAIT_FOR_TRIGGER→LOGGING, alongside the existing `frame_reset()` call at
-  `app.c:143`). Kept in `app.c` (the orchestrator) rather than inside `frame_reset()` so
-  `framing.c` carries no dependency on the fault-line module.
+- `fault_line_clear(void)` — drive PA10 LOW. Called from **two** sites:
+  1. `spi_ctrl.c` `HAL_SPI_TxCpltCallback` (every successful frame TX, alongside the existing
+     `STM_DATA_RDY` reset), so each tear-after-a-good-frame is a **fresh rising edge** the ESP
+     edge-ISR can see.
+  2. `app.c` at the session-start transition (WAIT_FOR_TRIGGER→LOGGING, alongside the
+     existing `frame_reset()` at `app.c:143`), to drop any latched fault from the prior session.
+
+**Edge semantics (why clear-on-TX-complete):** the ESP IO4 ISR is rising-edge-triggered. If
+the line merely latched until session reset, only the *first* tear would produce an edge and
+every later resync would be missed. Clearing on each good frame's TX-complete means: normal
+operation holds the line LOW; a tear pulses it HIGH until the next good frame; an **overrun
+latches HIGH naturally** because the STM stops sending (no further TX-complete to clear it),
+so the ESP still gets that edge. Consecutive tears with no good frame between them coalesce to
+one edge — acceptable, since a link that can't land a single good frame is a dead link the
+ESP's no-data/timeout path already covers. `GET_OVERRUN` (sticky on the STM until
+`frame_reset`) remains the authoritative disambiguator regardless of the line's level.
 
 **Assert sites:**
-1. **Ring overrun:** in `framing.c` `frame_append_line()` where `overrun = 1` is set (ring
-   full, frame dropped).
+1. **Ring overrun:** in `app.c` `MAIN_LOGGING`, immediately before the overrun gate
+   (`app.c:172`), guarded by `frame_overrun()`. Kept in `app.c` (not inside `framing.c`'s
+   `frame_append_line`) so `framing.c` carries no dependency on the fault-line module.
 2. **SPI tear:** in `spi_ctrl.c` `SPI_CTRL_TX_TIMEOUT` handling, where the DMA is aborted
    mid-transfer (`HAL_SPI_DMAStop`).
 
