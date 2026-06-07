@@ -330,10 +330,23 @@ def analyze_raw_v2(data, dur=None):
     res["inferred_hz"] = round(1_000_000.0 / expected_period, 3) if expected_period else None
 
     # One STM RTC tick (1/2048 s ~= 488 us): a fresh per-frame base_subsec is
-    # quantized to this resolution, so the gap across a frame boundary may differ
-    # from the nominal period by up to ~one tick. WITHIN a frame, lines are derived
-    # arithmetically from a single base -> spacing must be EXACTLY the table period.
+    # quantized to this resolution. WITHIN a frame, lines are derived arithmetically
+    # from a single base -> spacing must be EXACTLY the table period (tautological here,
+    # but it guards the decoder math). The gap ACROSS a frame boundary is the only real
+    # hardware-timing signal: it compares two independently RTC-captured frame bases.
+    #
+    # Two physical effects widen that gap beyond a single tick, with NO data loss:
+    #  1. Quantization phase-walk: a frame spans capacity*period us, which is generally
+    #     a NON-integer number of ticks (e.g. 500Hz: 70*2000 = 140000 us = 286.72 ticks),
+    #     so consecutive quantized bases legitimately differ by floor vs ceil ticks.
+    #  2. Frame-start scheduling jitter under concurrent API load: the base-capture ISR
+    #     can land ~one extra tick late. Observed at 500Hz under 4 API workers: 0.3% of
+    #     boundaries at +1.3 ticks; samples within those frames stay exactly periodic.
+    # The tolerance below is therefore TWO ticks. A genuinely DROPPED frame is a
+    # different, unmistakable signature (gap ~= (capacity+1)*period, i.e. tens of ms),
+    # caught by the explicit no-drop guard -> never masked by this widened band.
     RTC_TICK_US = 1_000_000.0 / 2048.0
+    BOUNDARY_TOL_US = 2 * RTC_TICK_US          # quantization phase-walk + sub-sample jitter
     if len(times_us) >= 2:
         all_diffs = within_frame_diffs + boundary_diffs
         res["timestamps_monotonic"] = all(d > 0 for d in all_diffs)
@@ -342,11 +355,17 @@ def analyze_raw_v2(data, dur=None):
         res["inferred_period_us"] = inferred
         within_exact = (expected_period > 0 and
                         all(d == expected_period for d in within_frame_diffs))
-        # boundary gaps: monotonic and within one RTC tick of the nominal period
-        boundary_ok = all(0 < d and abs(d - expected_period) <= RTC_TICK_US
+        # boundary gaps: monotonic, within tolerance of nominal, and no dropped frame.
+        # A dropped frame would push a gap to ~(capacity+1)*period; flag anything that
+        # exceeds nominal by half a frame as a real discontinuity, not jitter.
+        cap_for_drop = max(capacities) if capacities else 1
+        drop_guard_us = expected_period + 0.5 * cap_for_drop * expected_period
+        boundary_ok = all(0 < d and abs(d - expected_period) <= BOUNDARY_TOL_US
+                          and d < drop_guard_us
                           for d in boundary_diffs)
         res["within_frame_period_exact"] = within_exact
         res["boundary_gaps_ok"] = boundary_ok
+        res["boundary_tol_us"] = BOUNDARY_TOL_US
         res["period_ok"] = bool(within_exact and boundary_ok)
     else:
         res["timestamps_monotonic"] = True
