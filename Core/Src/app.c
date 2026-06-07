@@ -13,6 +13,7 @@
 #include "framing.h"
 #include "acquisition.h"
 #include "spi_ctrl.h"
+#include "fault_line.h"
 #include "config.h"
 
 /* TIM3 is owned by the CubeMX HAL handles in main.c; the state machine drives
@@ -91,6 +92,7 @@ void app_init(void)
 	 * at their definitions above (MainState=MAIN_IDLE, etc.); the hardware /
 	 * module pre-loop setup (iir_init, TIM14/16 start, frame_init, acq_init,
 	 * hadc1 backup) intentionally stays in main() to preserve init ordering. */
+	fault_line_init_output();   /* PA10 push-pull output, idle LOW */
 }
 
 
@@ -141,6 +143,7 @@ void app_run_once(void)
 	  				// start the ADC timer
 	  			  tim3_counter = 0;
 				  frame_reset();
+				  fault_line_clear();   /* drop any latched fault from prior session */
 				  time_result_write_ptr = 0;
 				  TIM3->CNT = 0;
 				  NextState = MAIN_LOGGING;
@@ -169,6 +172,11 @@ void app_run_once(void)
 			}
 
 
+	  	  if (frame_overrun())
+	  	  {
+	  		  fault_line_assert();   /* tell the ESP out-of-band before we stop */
+	  	  }
+
 	  	  if ((!logging_en || frame_overrun()) || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL))
 		  {
 			  // Overrun release gate: when the ring fills, logging stops and returns to IDLE.
@@ -196,6 +204,7 @@ void app_run_once(void)
 
 				  tim3_counter = 0;
 				  frame_reset();
+				  fault_line_clear();   /* new session: drop any latched fault */
 				  time_result_write_ptr = 0;
 				  // Start TIM3 and DMA conversion
 				  TIM3->CNT = 0;
@@ -321,6 +330,7 @@ void app_run_once(void)
 			  htim3_bak = htim3;
 			  tim3_counter = 0;
 			  frame_reset();
+			  fault_line_clear();   /* new session: drop any latched fault */
 			  time_result_write_ptr = 0;
         _singleshot = 1;
 

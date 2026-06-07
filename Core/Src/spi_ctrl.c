@@ -39,6 +39,7 @@
 
 #include <spi_ctrl.h>
 #include "main.h"
+#include "fault_line.h"
 
 uint8_t spi_ctrl_state = SPI_CTRL_IDLE;
 static uint8_t _curr_spi_state = SPI_CTRL_IDLE, _next_spi_state = SPI_CTRL_IDLE;
@@ -79,6 +80,10 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 	// Clear timeout interrupt
 	CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
 	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
+	fault_line_clear();   /* good frame sent -> drop the fault line so the next
+	                       * tear is a fresh rising edge. On ring overrun the ESP
+	                       * has already latched the edge in its ISR flag, so a
+	                       * late clear here cannot erase the pending fault. */
 	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_SENDING);
 
 	TIM14->CNT = 0;
@@ -196,6 +201,7 @@ void spi_ctrl_loop()
 				HAL_SPI_DMAStop(&hspi1);
 				// Not necessary for receiving, but no harm in making data_rdy low
 				HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, RESET);
+				fault_line_assert();   /* TX aborted mid-transfer -> ESP frame is torn */
 
 				// this is assuming we can only do send or receive simultaneously!
 				CLEAR_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
