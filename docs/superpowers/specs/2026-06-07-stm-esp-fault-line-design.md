@@ -63,8 +63,10 @@ A small fault-line helper in the STM (e.g. `fault_line.{c,h}` or folded into `sp
   1. `spi_ctrl.c` `HAL_SPI_TxCpltCallback` (every successful frame TX, alongside the existing
      `STM_DATA_RDY` reset), so each tear-after-a-good-frame is a **fresh rising edge** the ESP
      edge-ISR can see.
-  2. `app.c` at the session-start transition (WAIT_FOR_TRIGGER→LOGGING, alongside the
-     existing `frame_reset()` at `app.c:143`), to drop any latched fault from the prior session.
+  2. `app.c` at **every** session-start site — co-located with each `frame_reset()` that begins
+     acquisition (WAIT_FOR_TRIGGER→LOGGING, the IDLE→LOGGING continuous path, and SINGLE_SHOT) —
+     to drop any latched fault from the prior session. Invariant: a new session always starts
+     with the line LOW. (Not the read-only `STM32_CMD_GET_OVERRUN` handler, which only reads the flag.)
 
 **Edge semantics (why clear-on-TX-complete):** the ESP IO4 ISR is rising-edge-triggered. If
 the line merely latched until session reset, only the *first* tear would produce an edge and
