@@ -10,6 +10,19 @@
 
 **Spec:** `uberlogger-stm32/docs/superpowers/specs/2026-06-07-stm-esp-fault-line-design.md`
 
+> **REVISION (2026-06-07, during execution):** A final cross-repo integration review found the
+> original Tasks 4–5 design (ESP queries `STM32_CMD_GET_OVERRUN` mid-stream to disambiguate
+> tear-vs-overrun, then resyncs on a tear) is unworkable — the STM services SPI commands only in
+> `MAIN_IDLE` (`app.c:276`), so a mid-stream query during a tear stalls ~15 s and turns a tear
+> into an overrun. Per user directive (DAQ device: never poll the STM over SPI during logging; a
+> fault is serious, never continue), the design changed to **stop-on-any-fault**: the fault edge
+> discards the partial frame and stops+finalizes; the cause (overrun vs tear) is assigned at
+> `LOGTASK_LOGGING_FINAL` from the now-valid overrun query (`ERR_LOGGER_DATA_OVERRUN` vs
+> `ERR_LOGGER_STM32_FAULTY_DATA`). **No resync, no tear-storm window, no `RESYNC_COUNT`, no
+> mid-stream SPI poll.** Tasks 4 and 5 below describe the original design — the SPEC is the
+> source of truth; the shipped commits implement the revised design (ESP commits
+> `ae225d9`, `46e3c49`). Task 7's expected results are updated inline.
+
 ---
 
 ## Testing strategy (read first)
@@ -571,31 +584,31 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `/home/paulus-potter/dev/uberlogger-stm32/tools/bench/ul_soak.py` (surface RESYNC_COUNT)
 
-- [ ] **Step 1: Surface RESYNC_COUNT in the soak**
+- [ ] **Step 1: Surface ERRORCODE + prompt-stop timing in the soak**
 
-In `tools/bench/ul_soak.py`, in the status/summary reporting, read and print `RESYNC_COUNT` alongside `OVERRUN` (the field now exists in `/ajax/getStatus`). Add it to the API-load summary print and the final PASS/FAIL line so tears are visible. Commit:
+(REVISED — `RESYNC_COUNT` no longer exists.) In `tools/bench/ul_soak.py`, read and print `ERRORCODE` alongside `OVERRUN` in the status/summary, and detect a fault-stop: if the device transitions out of the logging state mid-soak, record how quickly (it must be prompt — seconds, not the old ~15 s stall) and report the resulting `ERRORCODE` (`0x02`=`ERR_LOGGER_DATA_OVERRUN`, `0x08`=`ERR_LOGGER_STM32_FAULTY_DATA`). PASS if the soak runs clean (no fault) OR a fault stops it promptly with a correct, single error bit. Commit:
 ```bash
 cd /home/paulus-potter/dev/uberlogger-stm32
 git add tools/bench/ul_soak.py
-git commit -m "test(bench): surface RESYNC_COUNT in overrun soak
+git commit -m "test(bench): surface ERRORCODE + fault-stop timing in soak
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 2: Flash both chips** (after user confirmation). STM via ST-Link; ESP via `idf.py -p <port> flash` or esptool. Confirm `/ajax/getStatus` shows the new firmware, `ERRORCODE 0`, `OVERRUN 0`, `RESYNC_COUNT 0`.
 
-- [ ] **Step 3: 1000 Hz soak (the headline gate)**
+- [ ] **Step 3: 1000 Hz soak (the headline gate)** — REVISED expectations
 
 Run:
 ```bash
 cd /home/paulus-potter/dev/uberlogger-stm32/tools/bench
 python3 ul_soak.py --rate 14 --dur 600 --outdir /tmp/soak/r14_faultline
 ```
-Expected: session **completes without `ERR 8` abort**; `OVERRUN=0`; `RESYNC_COUNT` reflects any tears (non-zero is acceptable — they were recovered); file continuity intact (no dropped frames). Contrast with the pre-fix run, which hard-aborted with `ERR_LOGGER_STM32_FAULTY_DATA`.
+Expected (stop-on-fault design): EITHER the soak runs clean to completion (no fault fired) with `OVERRUN=0` and intact file continuity; OR, if a fault fires, the session **stops promptly** (seconds — NOT the old ~15 s stall/hang) and finalizes with exactly one correct error bit: `OVERRUN=1`+`ERR_LOGGER_DATA_OVERRUN` (0x02) for an overrun, or `ERR_LOGGER_STM32_FAULTY_DATA` (0x08) for a tear. The key regression check vs the pre-fix run: no 15 s hang, and the device returns to a healthy idle state. Frames written before the fault must be valid (no torn frame on disk).
 
 - [ ] **Step 4: Forced ring-overrun check**
 
-Induce a ring overrun (e.g. starve the ESP / run at 1000 Hz under heavy load until the STM ring fills). Expected: `OVERRUN=1`, **clean finalize**, `ERRORCODE` shows `ERR_LOGGER_DATA_OVERRUN` (0x02), and **no** `ERR_LOGGER_STM32_FAULTY_DATA` (0x08). Confirm the device returns to a healthy idle state afterward.
+Induce a ring overrun (e.g. starve the ESP / run at 1000 Hz under heavy load until the STM ring fills). Expected: the fault line fires and **drives the stop** (not a timeout): `OVERRUN=1`, clean finalize, `ERRORCODE` = `ERR_LOGGER_DATA_OVERRUN` (0x02) and **NOT** `ERR_LOGGER_STM32_FAULTY_DATA` (0x08) — confirming the concurrent-frame guard (`if (_faultStop) _dataReceived=0`) keeps the error code clean. Confirm the device returns to a healthy idle state afterward.
 
 - [ ] **Step 5: 500 Hz regression**
 
