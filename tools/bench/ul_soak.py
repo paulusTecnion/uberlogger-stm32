@@ -152,9 +152,22 @@ def run_soak(rate_idx, dur, n_workers, outdir):
     _req("/ajax/setConfig", "POST", json.dumps(cfg))
     s = wait_settle(); print(f"settle after setConfig: {s}")
 
-    r = _req("/ajax/loggerStart", "POST")
-    if not wait_state(2, 8):
-        print(f"  !! never reached LOGGING (state={state()}); start resp={r.strip()[:60]}")
+    # loggerStart can momentarily NACK (HTTP 403 "Logger already logging") if the
+    # device is mid single-shot read even while reporting a settled state. Retry.
+    r = ""
+    started = False
+    for _ in range(6):
+        try:
+            r = _req("/ajax/loggerStart", "POST")
+            started = ('"ack"' in r) or wait_state(2, 4)
+            if started:
+                break
+        except urllib.error.HTTPError as e:
+            r = f"HTTP {e.code}"
+        wait_settle()
+        time.sleep(0.5)
+    if not started and not wait_state(2, 8):
+        print(f"  !! never reached LOGGING (state={state()}); start resp={str(r).strip()[:60]}")
 
     hammer = Hammer(POLL_ENDPOINTS_WHILE_LOGGING)
     hammer.start(n_workers)
