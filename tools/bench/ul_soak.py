@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Overrun soak: drive RAW 12-bit logging at a target rate while hammering the
-HTTP API, and PASS iff the device reports zero STM ring overrun.
+HTTP API.  PASS under stop-on-fault firmware iff EITHER:
+  (a) the soak ran the full duration with no fault (OVERRUN==0, ERRORCODE==0,
+      device still logging at end), OR
+  (b) a known fault stopped the device promptly mid-soak (ERRORCODE is exactly
+      0x02=ERR_LOGGER_DATA_OVERRUN or 0x08=ERR_LOGGER_STM32_FAULTY_DATA) AND
+      the stop was detected within PROMPT_STOP_MAX_S seconds of elapsing.
+In both cases the captured data must still pass the v2 file-continuity check.
 
 The high-rate RAW path (fs_code >= 13: 500/1000 Hz) is exactly where the STM->ESP
 SPI ring is most likely to overrun, especially under concurrent web/API load. This
-soak reproduces that stress and gates on the OVERRUN field (added in Task 6a) that
-/ajax/getStatus now reports (0 = no overrun, 1 = STM ring overran during the session).
+soak reproduces that stress and gates on OVERRUN + ERRORCODE from /ajax/getStatus.
+With stop-on-fault firmware, any SPI fault (ring overrun OR tear) causes the device
+to STOP logging and finalize, setting a non-zero ERRORCODE.
 
 Usage:
     python3 tools/bench/ul_soak.py --rate 14 --dur 600
@@ -38,6 +45,18 @@ POLL_ENDPOINTS_WHILE_LOGGING = [
     "/ajax/getRawAdc",
     "/ajax/getConfig",
 ]
+
+# Known ERRORCODE bits (stop-on-fault firmware).
+ERR_LOGGER_DATA_OVERRUN     = 0x02
+ERR_LOGGER_STM32_FAULTY_DATA = 0x08
+KNOWN_FAULT_CODES = frozenset({ERR_LOGGER_DATA_OVERRUN, ERR_LOGGER_STM32_FAULTY_DATA})
+
+# A fault-stop is "prompt" if detected within this many seconds of occurring.
+# A hang or device-unreachable period longer than this is a FAIL.
+PROMPT_STOP_MAX_S = 10.0
+
+# LOGGER_STATE value that means "actively logging" (matches firmware enum).
+LOGGER_STATE_LOGGING = 2
 
 
 def _download_bytes(path, timeout=60):
@@ -98,20 +117,25 @@ class Hammer:
             return {p: dict(v) for p, v in self.stats.items()}
 
 
-def get_overrun():
-    """Read /ajax/getStatus and return the OVERRUN field (int) or None."""
+def get_status_fields():
+    """Read /ajax/getStatus and return (overrun, errorcode, logger_state) as ints.
+    Returns (None, None, None) on failure."""
     try:
         j = json.loads(_req("/ajax/getStatus"))
     except Exception as e:
         print(f"  !! getStatus read failed: {e!r}")
-        return None
-    if "OVERRUN" not in j:
-        print("  !! getStatus has no OVERRUN field (firmware lacks Task 6a?)")
-        return None
-    try:
-        return int(j["OVERRUN"])
-    except Exception:
-        return None
+        return None, None, None
+
+    def _field(key):
+        try:
+            return int(j[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    overrun      = _field("OVERRUN")
+    errorcode    = _field("ERRORCODE")
+    logger_state = _field("LOGGER_STATE")
+    return overrun, errorcode, logger_state
 
 
 def run_soak(rate_idx, dur, n_workers, outdir):
@@ -136,24 +160,43 @@ def run_soak(rate_idx, dur, n_workers, outdir):
     hammer.start(n_workers)
     print(f"  hammering {n_workers} workers across {POLL_ENDPOINTS_WHILE_LOGGING}")
 
+    # -- Soak loop: run for `dur` seconds, but watch for a stop-on-fault early exit.
     t0 = time.time()
+    fault_stop_elapsed = None   # seconds into soak when fault-stop was detected
+    fault_stop_errorcode = None  # ERRORCODE observed at fault-stop
     try:
         while time.time() - t0 < dur:
             time.sleep(1.0)
+            elapsed = time.time() - t0
+            # Poll LOGGER_STATE to catch a stop-on-fault mid-soak.
+            try:
+                _, ec, ls = get_status_fields()
+                if ls is not None and ls != LOGGER_STATE_LOGGING:
+                    fault_stop_elapsed = elapsed
+                    fault_stop_errorcode = ec
+                    print(f"  !! device left LOGGING state at t+{elapsed:.1f}s  "
+                          f"LOGGER_STATE={ls}  ERRORCODE={hex(ec) if ec is not None else None}")
+                    break
+            except Exception as poll_err:
+                # Transient poll failure; keep the soak running.
+                print(f"  (poll error at t+{elapsed:.1f}s: {poll_err!r})")
     finally:
         hammer.stop()
 
-    _req("/ajax/loggerStop", "POST")
+    # Issue stop only if the device is (still) logging; if it self-stopped, skip.
+    if fault_stop_elapsed is None:
+        _req("/ajax/loggerStop", "POST")
     wait_settle()
-    time.sleep(2)  # let the session finalize (STM overrun query happens here)
+    time.sleep(2)  # let the session finalize
 
     stats = hammer.summary()
     print("  API load summary:")
     for p, v in stats.items():
         print(f"    {p:22} ok={v['ok']:6} err={v['err']:4} last_err={v['last_err']}")
 
-    overrun = get_overrun()
-    print(f"  OVERRUN = {overrun}")
+    overrun, errorcode, logger_state = get_status_fields()
+    print(f"  OVERRUN={overrun}  ERRORCODE={hex(errorcode) if errorcode is not None else None}"
+          f"  LOGGER_STATE={logger_state}")
 
     # Optional file-continuity check: now idle, listing is safe.
     file_ok = None
@@ -186,20 +229,64 @@ def run_soak(rate_idx, dur, n_workers, outdir):
     else:
         print("  !! no new file created during soak")
 
-    # PASS iff OVERRUN == 0 AND (if we could analyze the file) continuity intact.
-    overrun_ok = (overrun == 0)
-    passed = overrun_ok and (file_ok is not False)
+    # --- PASS/FAIL ---
+    # Path A: full-duration clean run — no fault at all.
+    full_run_clean = (fault_stop_elapsed is None
+                      and overrun == 0
+                      and (errorcode or 0) == 0)
+
+    # Path B: fault-stop with a known, single-bit ERRORCODE that arrived promptly.
+    fault_stop_ok = False
+    fault_stop_reason = None
+    if fault_stop_elapsed is not None:
+        ec = fault_stop_errorcode if fault_stop_errorcode is not None else errorcode
+        if ec is None:
+            fault_stop_reason = "ERRORCODE unreadable after fault-stop"
+        elif ec not in KNOWN_FAULT_CODES:
+            fault_stop_reason = (f"ERRORCODE={hex(ec)} has unexpected bits "
+                                 f"(expected one of "
+                                 f"{[hex(c) for c in sorted(KNOWN_FAULT_CODES)]})")
+        elif fault_stop_elapsed > PROMPT_STOP_MAX_S:
+            fault_stop_reason = (f"fault-stop detected late: t+{fault_stop_elapsed:.1f}s "
+                                 f"> PROMPT_STOP_MAX_S={PROMPT_STOP_MAX_S}s (possible hang)")
+        else:
+            fault_stop_ok = True
+
+    # Unexpected ERRORCODE bits even on a non-stopped soak.
+    unexpected_errorcode = (fault_stop_elapsed is None
+                            and errorcode is not None
+                            and errorcode not in (0,) | KNOWN_FAULT_CODES)
+
+    passed = (full_run_clean or fault_stop_ok) and (file_ok is not False) and not unexpected_errorcode
 
     print("\n" + "=" * 56)
     if passed:
-        print(f"PASS  rate_idx={rate_idx} ({rate_hz} Hz)  OVERRUN={overrun}  "
-              f"file_continuity={file_ok}")
+        if full_run_clean:
+            print(f"PASS  rate_idx={rate_idx} ({rate_hz} Hz)  "
+                  f"OVERRUN={overrun}  ERRORCODE={hex(errorcode) if errorcode is not None else None}  "
+                  f"file_continuity={file_ok}  (full-duration clean run)")
+        else:
+            ec_used = fault_stop_errorcode if fault_stop_errorcode is not None else errorcode
+            print(f"PASS  rate_idx={rate_idx} ({rate_hz} Hz)  "
+                  f"ERRORCODE={hex(ec_used) if ec_used is not None else None}  "
+                  f"fault_stop_at=t+{fault_stop_elapsed:.1f}s  "
+                  f"file_continuity={file_ok}  (prompt fault-stop, known code)")
     else:
         reason = []
-        if not overrun_ok:
-            reason.append(f"OVERRUN={overrun} (expected 0)")
+        if not full_run_clean and not fault_stop_ok:
+            if fault_stop_elapsed is None and not full_run_clean:
+                if overrun != 0:
+                    reason.append(f"OVERRUN={overrun} (expected 0)")
+                if (errorcode or 0) != 0:
+                    reason.append(f"ERRORCODE={hex(errorcode)} unexpected on clean run")
+            if fault_stop_reason:
+                reason.append(fault_stop_reason)
+        if unexpected_errorcode:
+            reason.append(f"ERRORCODE={hex(errorcode)} has unexpected bits")
         if file_ok is False:
             reason.append("file continuity broken")
+        if not reason:
+            reason.append("unknown failure")
         print(f"FAIL  rate_idx={rate_idx} ({rate_hz} Hz)  -> {'; '.join(reason)}")
     print("=" * 56)
     return passed
