@@ -71,6 +71,8 @@ The firmware is split into focused modules under `Core/Src/` (with matching head
 - **`config`** — settings parsing and the `STM32_CMD_*` command handlers.
 - **`Core/Inc/ul_protocol.h`** — the shared, cross-repo SPI protocol contract. This is the single source of truth for the byte layout exchanged with the ESP32; the human-readable spec lives in [`docs/protocol/uberlogger-spi-protocol.md`](docs/protocol/uberlogger-spi-protocol.md).
 
+A **low-power triggered mode** (trigger mode 3) is implemented in this firmware. While armed the STM32 enters WFI Sleep with the ADC and AWD hardware watchdog running, waking only on a threshold crossing (analog) or EXTI edge (digital); on trigger it runs the standard acquisition pipeline for a configured duration, then re-arms. The LP state machine lives in `app.c` (`LP_PRECHECK` / `LP_ARMED` / capture states), AWD arm/disarm in `acquisition.c`, and LP settings parsing in `config.c`. The hardware verification harness for this mode is [`tools/bench/lp_bench.py`](tools/bench/lp_bench.py).
+
 ### 4. Build the Project
 
 1. Right-click on the project in the Project Explorer

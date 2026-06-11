@@ -9,9 +9,9 @@ machine-readable single source of truth, [`Core/Inc/ul_protocol.h`](../../Core/I
 > - `uberlogger-stm32` : `Core/Inc/ul_protocol.h`
 > - `uberlogger-esp32` : `main/ul_protocol.h`
 >
-> The two copies must be `diff`-clean. `UL_PROTOCOL_VERSION` (currently `1`) is
+> The two copies must be `diff`-clean. `UL_PROTOCOL_VERSION` (currently `2`) is
 > the sync tripwire: each repo carries a build-visible
-> `_Static_assert(UL_PROTOCOL_VERSION == 1, "ul_protocol.h copies are out of sync")`
+> `_Static_assert(UL_PROTOCOL_VERSION == 2, "ul_protocol.h copies are out of sync")`
 > (STM32 in `Core/Src/config.c`, ESP32 in `main/logger.c`). If the prose below
 > ever disagrees with the header, the header wins — fix the prose.
 
@@ -79,6 +79,9 @@ ESP32 → STM32. One byte, the `command` field of `spi_cmd_t`.
 | `STM32_CMD_SET_RANGE`                | 0x0B  | Set input range (10V/60V) |
 | `STM32_CMD_SET_TRIGGER_MODE`         | 0x0C  | Set trigger mode |
 | `CMD_UNKNOWN`                        | 0x0D  | Sentinel (not a wire command) |
+| `STM32_CMD_SET_LP_CONFIG`            | 0x0E  | Configure low-power trigger mode (v2) |
+| `STM32_CMD_SET_ARMED_WINDOW`         | 0x0F  | Set daily armed window (v2, reserved) |
+| `STM32_CMD_GET_DATETIME`             | 0x10  | Read STM32 RTC date/time (v2, reserved) |
 
 ### Command / response struct (`spi_cmd_t`, 8 bytes)
 
@@ -212,7 +215,163 @@ own per-transaction timeout proportional to `DATA_LINES_PER_SPI_TRANSACTION`.
 
 ---
 
-## 6. The `spi_cmd_t` / `stm32cmd_t` name reconciliation
+## 6. Protocol v2 command byte layouts
+
+Added in `UL_PROTOCOL_VERSION 2` (2026-06-11) for low-power triggered mode. All
+three commands use the shared 8-byte `spi_cmd_t` struct (§2).
+
+### `STM32_CMD_SET_LP_CONFIG` (0x0E)
+
+Configures the low-power trigger source, threshold, edge, and capture duration.
+This is the only v2 command that is fully implemented in Plan 1.
+
+| Byte | Field              | Meaning |
+|------|--------------------|---------|
+| 0    | `command`          | `0x0E` |
+| 1    | `data` / `data0`   | source: `0` = analog, `1` = digital |
+| 2    | `data1`            | channel (1-based; 1–8 analog, 1–6 digital) |
+| 3    | `data2`            | threshold low byte (LE `uint16_t`, raw ADC counts at current resolution) |
+| 4    | `data3`            | threshold high byte |
+| 5    | `data4`            | edge: `0` = rising-above, `1` = falling-below (raw-count domain; see §7) |
+| 6    | `data5`            | duration low byte (LE `uint16_t`, seconds, ≥ 1) |
+| 7    | `data6`            | duration high byte |
+
+For a **digital source**, threshold and edge encode the GPIO pin selection:
+`data1` carries the channel number and the trigger edge polarity is encoded in
+`data4` (rising/falling). `data2`/`data3` threshold is ignored.
+
+For **digital triggers** the GPIO pin for trigger monitoring is supplied by
+`STM32_CMD_SET_TRIGGER_MODE`'s `gpio` field, selecting which DIO pin the EXTI is
+armed on.
+
+### `STM32_CMD_SET_ARMED_WINDOW` (0x0F) — reserved
+
+**Not yet implemented** (Plan 2). Configures an optional daily armed window;
+outside the window both chips drop to deepest sleep.
+
+| Byte | Field    | Meaning |
+|------|----------|---------|
+| 0    | `command`| `0x0F` |
+| 1    | `data`   | enable: `0` = off, `1` = on |
+| 2    | `data1`  | window start low byte (LE `uint16_t`, minutes since midnight) |
+| 3    | `data2`  | window start high byte |
+| 4    | `data3`  | window end low byte (LE `uint16_t`, minutes since midnight) |
+| 5    | `data4`  | window end high byte |
+| 6–7  | reserved | |
+
+### `STM32_CMD_GET_DATETIME` (0x10) — reserved
+
+**Not yet implemented** (Plan 2). No request payload; the STM32 returns its
+RTC date/time in the response frame. Exact response layout is TBD at
+implementation — it will carry date/time fields sufficient for the ESP32 to
+re-sync its wall clock after deep-sleep wake, reversing the current flow
+(today time only flows ESP32 → STM32 via `STM32_CMD_SET_DATETIME`).
+
+---
+
+## 7. Low-power trigger mode
+
+**Mode value 3** in `STM32_CMD_SET_TRIGGER_MODE`. Trigger parameters are then
+supplied via `STM32_CMD_SET_LP_CONFIG` (§6). The low-power mode is bench-verified
+in Plan 1 (`feature/low-power-mode`).
+
+### State flow
+
+```
+IDLE
+  │  MEASURE_MODE command (trigger-mode = LP)
+  ▼
+LP_PRECHECK
+  │  Waits: re-arm holdoff elapsed AND signal on the "safe" side of the
+  │  threshold (crossing semantics — the trigger fires on a directional
+  │  crossing, not a level). Both conditions must be true before arming.
+  ▼
+LP_ARMED  ◄──────────────────────────────────────────────────┐
+  │  Main loop: WFI (Sleep mode). ADC + TIM3 + DMA run.      │
+  │  Analog: AWD1 hardware watchdog fires on threshold cross. │
+  │  Digital: EXTI fires on selected pin edge.                │
+  │  SETTINGS_MODE command → exits to CONFIG (settings edit). │
+  ▼                                                           │
+CAPTURING                                                     │
+  │  Existing acquisition pipeline active (TIM3 → DMA →       │
+  │  framing → SPI). Duration timer (RTC-based). DATA_READY   │
+  │  rises on first full frame — also the ESP32 wake signal.  │
+  │  EXT_PIN_VALUE (PA9) driven HIGH during capture.          │
+  │  On duration expiry: final frame sent, holdoff started.   │
+  └─► re-arm holdoff ──────────────────────────────────────────┘
+```
+
+`LP_PRECHECK` and `LP_ARMED` are new states in `Core/Src/app.c`. AWD arm/disarm
+lives in `Core/Src/acquisition.c`. Settings are parsed in `Core/Src/config.c`.
+
+### EXT_PIN_VALUE signaling (PA9)
+
+`EXT_PIN_VALUE` (PA9) is driven **HIGH** for the entire capture duration and
+**LOW** at all other times (idle, armed, holdoff). This is identical to the
+`EXTERNAL` trigger mode's signaling from the ESP32's perspective: the existing
+ESP32 firmware (≤1.3.3) requires no change to detect end-of-capture.
+
+### Analog threshold domain and the inverting front end
+
+Thresholds and edges sent in `STM32_CMD_SET_LP_CONFIG` are in the **raw ADC
+count domain**, not in volts.
+
+The analog front end is **inverting**: a rising input voltage produces a falling
+raw ADC count. On the 10 V range the relationship is:
+
+```
+volts = 15.1699 × (1 − 2 × raw / 4095)
+```
+
+This corresponds to ESP32-side constant `V_OFFSET_10V = 151699029`. An analogous
+formula applies on the 60 V range using `V_OFFSET_60V`.
+
+Consequence for the ESP32: when the user requests a **rising-voltage** trigger,
+the ESP32 must send **edge = 1 (falling-below)** in the raw domain, and vice
+versa. The conversion formula to go from user volts to raw counts (10 V range):
+
+```
+raw = round(4095 × (1 − V / 15.1699) / 2)
+```
+
+**Threshold register scaling (AWD):** the AWD threshold registers are 12-bit.
+In 12-bit mode the threshold is the raw count directly. In 16-bit
+(oversampled) mode the STM32 right-shifts the 16-bit threshold value by 4 before
+writing the AWD registers (`threshold >> 4`), so the AWD compares against the
+upper 12 bits of the post-oversampling result. This has been **bench-proven** in
+both 12-bit and 16-bit modes (Plan 1 `lp_bench.py`).
+
+### Command handling while armed (`LP_ARMED` / `LP_PRECHECK`)
+
+| Command                      | Response while armed |
+|------------------------------|----------------------|
+| `STM32_CMD_SETTINGS_MODE`    | OK; transitions to CONFIG (exits LP, allows settings edit) |
+| `STM32_CMD_NOP`              | silently ignored (no response) |
+| `STM32_CMD_SEND_LAST_ADC_BYTES` | served (flushes the final partial frame; see below) |
+| all others                   | NOK |
+
+**End-of-capture tail mechanics:** at capture end the STM32 has a partially
+filled frame in its DMA buffer. This frame is available via
+`STM32_CMD_SEND_LAST_ADC_BYTES`. Stock ESP32 firmware (≤1.3.3) never issues this
+command during a logging session, so the final partial frame is **dropped** by
+stock firmware. An LP-aware ESP32 (Plan 2) must request `SEND_LAST_ADC_BYTES`
+at the end of each capture to collect this tail data.
+
+**Note on SPI receive posted while armed:** if a pending SPI receive DMA was
+armed at the point of trigger, it is cancelled via `spi_ctrl_cancel_receive()`
+before the capture pipeline starts. This was verified necessary on the bench
+(Plan 1) and is implemented.
+
+### ESP32 settings re-sync after STM32 reset
+
+The STM32 boots at 10 Hz defaults regardless of the previous session's settings.
+The ESP32 must re-send all settings (resolution, rate, channels, range, trigger
+mode, LP config) after any STM32 reset before arming. This is a Plan-2/3 design
+requirement.
+
+---
+
+## 8. The `spi_cmd_t` / `stm32cmd_t` name reconciliation
 
 Historically the two repos disagreed on **type names** (never on bytes):
 
