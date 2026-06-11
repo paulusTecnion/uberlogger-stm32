@@ -107,6 +107,12 @@ static void lp_disarm_digital(uint16_t pin)
 	g.Mode = GPIO_MODE_INPUT;  /* back to the plain-input config from MX_GPIO_Init */
 	g.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(GPIOB, &g);
+	/* HAL_GPIO_Init with plain INPUT does NOT clear the EXTI config on G0 —
+	 * without this the pin keeps interrupting on every edge after disarm
+	 * (harmless but wasteful; final-review finding M-2). */
+	CLEAR_BIT(EXTI->IMR1, (uint32_t)pin);
+	CLEAR_BIT(EXTI->RTSR1, (uint32_t)pin);
+	CLEAR_BIT(EXTI->FTSR1, (uint32_t)pin);
 	lp_pin_edge_seen = 0;
 }
 
@@ -505,6 +511,7 @@ void app_run_once(void)
 			   * disarm + acq_stop + go to MAIN_CONFIG) and 0 for NOP/unknown.
 			   * After handling a non-CONFIG command we fall through to step 3
 			   * so a simultaneously latched trigger is not lost. */
+			  uint8_t msg_dispatched = 0;
 			  if (spi_ctrl_msg_received())
 			  {
 				  if (lp_dispatch_cmd())
@@ -520,6 +527,7 @@ void app_run_once(void)
 				  }
 				  /* Non-CONFIG command: responded inside lp_dispatch_cmd().
 				   * Fall through to step 3 — check fired in the SAME pass. */
+				  msg_dispatched = 1;
 			  }
 
 			  /* Step 3: evaluate trigger.
@@ -571,8 +579,13 @@ void app_run_once(void)
 				  break;
 			  }
 
-			  /* Step 4: keep an SPI receive posted, then sleep until an IRQ */
-			  if (spi_ctrl_isIdle())
+			  /* Step 4: keep an SPI receive posted, then sleep until an IRQ.
+			   * NOT on a pass that just dispatched a command: the response TX
+			   * posted by lp_dispatch_cmd() puts HAL in BUSY_TX, and
+			   * spi_ctrl_receive()'s error path would HAL_SPI_DMAStop() —
+			   * aborting our own response after DATA_RDY already went high
+			   * (final-review finding I-1). Repost next pass instead. */
+			  if (!msg_dispatched && spi_ctrl_isIdle())
 			  {
 				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
 			  }

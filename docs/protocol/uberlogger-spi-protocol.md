@@ -236,13 +236,12 @@ This is the only v2 command that is fully implemented in Plan 1.
 | 6    | `data5`            | duration low byte (LE `uint16_t`, seconds, ≥ 1) |
 | 7    | `data6`            | duration high byte |
 
-For a **digital source**, threshold and edge encode the GPIO pin selection:
-`data1` carries the channel number and the trigger edge polarity is encoded in
-`data4` (rising/falling). `data2`/`data3` threshold is ignored.
-
-For **digital triggers** the GPIO pin for trigger monitoring is supplied by
-`STM32_CMD_SET_TRIGGER_MODE`'s `gpio` field, selecting which DIO pin the EXTI is
-armed on.
+For a **digital source**, only `data4` (edge: rising/falling) is used. The
+`data2`/`data3` threshold is ignored. `data1` (channel) is validated (1–6) and
+stored but **currently ignored**: the DIO pin actually armed comes solely from
+`STM32_CMD_SET_TRIGGER_MODE`'s `gpio` field. An LP-aware ESP32 MUST keep the two
+commands consistent (send the same pin in both) until a future protocol version
+consolidates them.
 
 ### `STM32_CMD_SET_ARMED_WINDOW` (0x0F) — reserved
 
@@ -294,7 +293,7 @@ LP_ARMED  ◄──────────────────────�
   ▼                                                           │
 CAPTURING                                                     │
   │  Existing acquisition pipeline active (TIM3 → DMA →       │
-  │  framing → SPI). Duration timer (RTC-based). DATA_READY   │
+  │  framing → SPI). Duration timer (SysTick ms). DATA_READY   │
   │  rises on first full frame — also the ESP32 wake signal.  │
   │  EXT_PIN_VALUE (PA9) driven HIGH during capture.          │
   │  On duration expiry: final frame sent, holdoff started.   │
@@ -347,7 +346,7 @@ both 12-bit and 16-bit modes (Plan 1 `lp_bench.py`).
 |------------------------------|----------------------|
 | `STM32_CMD_SETTINGS_MODE`    | OK; transitions to CONFIG (exits LP, allows settings edit) |
 | `STM32_CMD_NOP`              | silently ignored (no response) |
-| `STM32_CMD_SEND_LAST_ADC_BYTES` | served (flushes the final partial frame; see below) |
+| `STM32_CMD_SEND_LAST_ADC_BYTES` | served (flushes the final partial frame; see below). The response is sent on the NEXT main-loop pass; the ESP32 must wait for DATA_RDY as usual |
 | all others                   | NOK |
 
 **End-of-capture tail mechanics:** at capture end the STM32 has a partially
