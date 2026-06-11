@@ -57,6 +57,7 @@ uint8_t  config_lp_channel(void);     /* 1-based: AIN 1-8 / DIO 1-6 */
 uint16_t config_lp_threshold(void);   /* raw counts at the configured resolution */
 uint8_t  config_lp_edge(void);        /* 0=rising-above, 1=falling-below */
 uint16_t config_lp_duration_s(void);
+void     config_lp_bench_force(void); /* no-op unless LP_BENCH_FORCE (config.c) */
 #endif
 
 

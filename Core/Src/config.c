@@ -75,6 +75,30 @@ uint16_t config_lp_threshold(void)  { return _lp_threshold; }
 uint8_t  config_lp_edge(void)       { return _lp_edge; }
 uint16_t config_lp_duration_s(void) { return _lp_duration_s; }
 
+/* LP bench override (plan Task 7): forces low-power trigger config at boot so a
+ * STOCK ESP32 (no LP commands until Plan 2) can drive this mode. Set the web UI
+ * to "External trigger" mode — the ESP32 then follows EXT_PIN_VALUE, which the
+ * LP engine drives during capture. NEVER commit with the define enabled. */
+//#define LP_BENCH_FORCE
+#ifdef LP_BENCH_FORCE
+void config_lp_bench_force(void)
+{
+	_trigger_mode  = TRIGGER_MODE_LOW_POWER;
+	_lp_source     = LP_SOURCE_ANALOG;
+	_lp_channel    = 1;        /* AIN1 */
+	/* Threshold in RAW 12-bit counts. The 10 V front end is INVERTING and spans
+	 * +/-15.1699 V at ADC full scale (ESP32 logger.c V_OFFSET_10V=151699029):
+	 *   volts(raw) = 15.1699 * (1 - 2*raw/4095)  =>  raw(4.0 V) = 1508.
+	 * Volts UP == raw counts DOWN, so "input rises above 4.0 V" is raw FALLING
+	 * BELOW 1508 => edge = 1 (falling-below; edge is raw-count domain). */
+	_lp_threshold  = 1508;     /* raw(4.0 V), 10 V range, 12-bit */
+	_lp_edge       = 1;        /* raw falling-below == volts rising above 4 V */
+	_lp_duration_s = 10;
+}
+#else
+void config_lp_bench_force(void) {}
+#endif
+
 uint8_t Config_set_lpConfig(uint8_t source, uint8_t channel, uint16_t threshold,
                             uint8_t edge, uint16_t duration_s)
 {
@@ -278,6 +302,9 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 
 uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio)
 {
+#ifdef LP_BENCH_FORCE
+	(void)mode; (void)gpio; return 0;   /* bench: ignore ESP32 trigger-mode sync */
+#endif
 	if ((mode > TRIGGER_MODE_LOW_POWER) || ((gpio < 1) || (gpio > 6)))
 		return 1;
 	_trigger_mode = mode;
