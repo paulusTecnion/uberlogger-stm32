@@ -205,6 +205,21 @@ void acq_lp_arm_analog(uint8_t channel_1based, uint16_t threshold, uint8_t edge)
 
 	/* AWD channel/mode bits require ADSTART=0: briefly stop, configure, restart. */
 	acq_stop();
+
+	/* Fix I3: boot config uses TIM3-TRGO as trigger source. If SET_SAMPLE_RATE
+	 * has never been synced from the ESP32 (TIM3 not running), the AWD would
+	 * never see a conversion. Force free-running mode so the AWD always fires.
+	 * ADC_Reinit() calls HAL_ADC_Init() which re-programs the CFGR1 register
+	 * without restarting DMA — safe here because ADSTART=0 after acq_stop(). */
+	if (hadc1.Init.ExternalTrigConv != ADC_SOFTWARE_START
+			|| hadc1.Init.ContinuousConvMode != ENABLE)
+	{
+		hadc1.Init.ExternalTrigConv     = ADC_SOFTWARE_START;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+		hadc1.Init.ContinuousConvMode   = ENABLE;
+		ADC_Reinit();
+	}
+
 	lp_awd_fired = 0;
 	HAL_ADC_AnalogWDGConfig(&hadc1, &awd);
 	HAL_NVIC_SetPriority(ADC1_IRQn, 2, 0);

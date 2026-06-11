@@ -64,6 +64,27 @@ static volatile uint8_t  lp_armed = 0;
 static volatile uint8_t  lp_pin_edge_seen = 0;
 static volatile uint32_t lp_pin_edge_tick = 0;
 
+#define LP_USE_WFI        1     /* set 0 for debug sessions (live-watch etc.) */
+#define LP_REARM_HOLDOFF_MS 1000
+
+static uint8_t  lp_capturing = 0;
+static uint32_t lp_capture_deadline = 0;
+static uint32_t lp_rearm_after = 0;
+
+/* Signal on the "safe" (non-trigger) side of the threshold? (edge semantics) */
+static uint8_t lp_signal_on_safe_side(void)
+{
+	if (config_lp_source() == 0) /* analog */
+	{
+		uint16_t v = acq_last_sample(config_lp_channel() - 1);
+		return (config_lp_edge() == 0) ? (v < config_lp_threshold())
+		                               : (v > config_lp_threshold());
+	}
+	/* digital: safe = pin at the inactive level for the chosen edge */
+	GPIO_PinState s = HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input());
+	return (config_lp_edge() == 0) ? (s == GPIO_PIN_RESET) : (s == GPIO_PIN_SET);
+}
+
 static void lp_arm_digital(uint16_t pin, uint8_t edge)
 {
 	GPIO_InitTypeDef g = {0};
@@ -137,6 +158,37 @@ void app_init(void)
 }
 
 
+/* Handle one ESP32 command while in an LP state (PRECHECK or ARMED).
+ * Returns 1 if the command forces an exit to MAIN_CONFIG (caller must
+ * disarm-if-armed + acq_stop() + set NextState = MAIN_CONFIG and break).
+ * Returns 0 for NOP (silently consumed, no response) and for unknown commands
+ * (NOK response sent). Mirrors MAIN_IDLE's dispatcher for LP-relevant commands.
+ * Precondition: spi_ctrl_msg_received() returned true (flag already consumed). */
+static uint8_t lp_dispatch_cmd(void)
+{
+	spi_cmd_t *cmd = (spi_cmd_t*)&cmd_buffer;
+	spi_cmd_t resp;
+	switch (cmd->command)
+	{
+		case STM32_CMD_SETTINGS_MODE:
+			resp.command = STM32_CMD_SETTINGS_MODE;
+			resp.data = CMD_RESP_OK;
+			spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+			return 1;
+
+		case STM32_CMD_NOP:
+			/* Silently consumed, no response — exact MAIN_IDLE parity. */
+			return 0;
+
+		default:
+			resp.command = STM32_CMD_NOP;
+			resp.data = CMD_RESP_NOK;
+			spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+			return 0;
+	}
+}
+
+
 void app_run_once(void)
 {
 	  spi_ctrl_loop();
@@ -146,31 +198,39 @@ void app_run_once(void)
 	  acq_clear_busy(); // reset interrupt timeout
 
 	  // forward trigger input to esp32
-	  if (HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input()))
+	  if (config_trigger_mode() != TRIGGER_MODE_LOW_POWER)
 	  {
-	      // Input is high and hasn't been debounced yet
-	      if (ext_trigger_input_value_debounced == 0)
-	      {
-	          // Start debouncing: set the previous time to the current time
-	          _debounce_prev_time = HAL_GetTick();
-	          ext_trigger_input_value_debounced = 1;  // Mark as debouncing
-	      }
+		  if (HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input()))
+		  {
+		      // Input is high and hasn't been debounced yet
+		      if (ext_trigger_input_value_debounced == 0)
+		      {
+		          // Start debouncing: set the previous time to the current time
+		          _debounce_prev_time = HAL_GetTick();
+		          ext_trigger_input_value_debounced = 1;  // Mark as debouncing
+		      }
 
-	      // Check if debounce time has passed
-	      if ((HAL_GetTick() - _debounce_prev_time > config_debounce_time_ext_input()))
-	      {
-	    	  ext_trigger_input_value = 1;  // Set the output high
-	      }
+		      // Check if debounce time has passed
+		      if ((HAL_GetTick() - _debounce_prev_time > config_debounce_time_ext_input()))
+		      {
+		    	  ext_trigger_input_value = 1;  // Set the output high
+		      }
+		  }
+		  else
+		  {
+		      // Input is low, reset debouncing and immediately set output low
+		      ext_trigger_input_value = 0;
+		      ext_trigger_input_value_debounced = 0;  // Reset debouncing state
+		      _debounce_prev_time = HAL_GetTick();    // Reset debounce timer
+		  }
+
+		  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
 	  }
 	  else
 	  {
-	      // Input is low, reset debouncing and immediately set output low
-	      ext_trigger_input_value = 0;
-	      ext_trigger_input_value_debounced = 0;  // Reset debouncing state
-	      _debounce_prev_time = HAL_GetTick();    // Reset debounce timer
+	      HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin,
+	                        lp_capturing ? GPIO_PIN_SET : GPIO_PIN_RESET);
 	  }
-
-	  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
 
 	  switch(MainState)
 	  {
@@ -220,7 +280,9 @@ void app_run_once(void)
 			}
 
 
-	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL))
+	  	  if ((!logging_en || overrun)
+	  			  || (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL)
+	  			  || (lp_capturing && (int32_t)(HAL_GetTick() - lp_capture_deadline) >= 0))
 		  {
 //				  if (overrun)
 //				  {
@@ -235,7 +297,13 @@ void app_run_once(void)
 			  HAL_Delay(50);
 			  // Set ADC to single conversion measure mode
 
-			  if (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL && logging_en)
+			  if (lp_capturing)
+			  {
+				  lp_capturing = 0;     /* EXT_PIN_VALUE drops on the next pass */
+				  lp_rearm_after = HAL_GetTick() + LP_REARM_HOLDOFF_MS;
+				  NextState = logging_en ? MAIN_LP_PRECHECK : MAIN_IDLE;
+			  }
+			  else if (ext_trigger_input_value == 0 && config_trigger_mode() == TRIGGER_MODE_EXTERNAL && logging_en)
 			  {
 				  NextState = MAIN_WAIT_FOR_TRIGGER;
 			  } else {
@@ -247,7 +315,12 @@ void app_run_once(void)
 
 		  case MAIN_IDLE:
 			  // In case logging gets enabled and we are in continuous mode, start the ADC
-			  if (logging_en && spi_ctrl_isIdle() && (config_trigger_mode() != TRIGGER_MODE_EXTERNAL))
+			  if (logging_en && spi_ctrl_isIdle() && (config_trigger_mode() == TRIGGER_MODE_LOW_POWER))
+			  {
+				  lp_rearm_after = HAL_GetTick();   /* no holdoff on first arm */
+				  NextState = MAIN_LP_PRECHECK;
+			  }
+			  else if (logging_en && spi_ctrl_isIdle() && (config_trigger_mode() != TRIGGER_MODE_EXTERNAL))
 			  {
 
 				  tim3_counter = 0;
@@ -339,6 +412,151 @@ void app_run_once(void)
 				  }
 			  }
 			  break;
+
+		  case MAIN_LP_PRECHECK:
+			  /* Wait out the re-arm holdoff, then wait until the signal sits on
+			   * the non-trigger side of the threshold (true crossing semantics),
+			   * then arm the hardware trigger and go to sleep-armed.
+			   * PRECHECK spins (no WFI) so it can poll acq_last_sample and
+			   * service ESP32 commands that arrive during the holdoff/wait. */
+			  if (!logging_en)
+			  {
+				  NextState = MAIN_IDLE;
+				  break;
+			  }
+
+			  /* Service any ESP32 command that arrived during holdoff/wait. */
+			  if (spi_ctrl_msg_received())
+			  {
+				  if (lp_dispatch_cmd())
+				  {
+					  /* SETTINGS_MODE: exit to config (nothing is armed yet) */
+					  acq_stop();
+					  NextState = MAIN_CONFIG;
+				  }
+				  /* else: NOP or unknown handled inside lp_dispatch_cmd(); stay in PRECHECK */
+				  break;
+			  }
+			  if (spi_ctrl_isIdle())
+			  {
+				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+			  }
+
+			  if ((int32_t)(HAL_GetTick() - lp_rearm_after) >= 0 && lp_signal_on_safe_side())
+			  {
+				  if (config_lp_source() == 0)
+				  {
+					  acq_lp_arm_analog(config_lp_channel(), config_lp_threshold(), config_lp_edge());
+					  lp_armed = 1;
+				  }
+				  else
+				  {
+					  lp_arm_digital(config_ext_trigger_input(), config_lp_edge());
+					  /* Close the ISR gate before reading the pin: any transition that
+					   * occurs after lp_armed=1 is captured by the ISR; a stale
+					   * synthetic latch is harmless because debounce confirm re-checks
+					   * the live level. */
+					  lp_armed = 1;
+					  GPIO_PinState s = HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input());
+					  uint8_t already_active = (config_lp_edge() == 0) ? (s == GPIO_PIN_SET) : (s == GPIO_PIN_RESET);
+					  if (already_active)
+					  {
+						  lp_pin_edge_seen = 1;
+						  lp_pin_edge_tick = HAL_GetTick();
+					  }
+				  }
+				  NextState = MAIN_LP_ARMED;
+			  }
+			  break;
+
+		  case MAIN_LP_ARMED:
+		  {
+			  /* Step 1: logging_en exit — checked BEFORE consuming any message or
+			   * trigger flag so that a simultaneous trigger + logging-stop does not
+			   * silently discard the trigger read. */
+			  if (!logging_en)
+			  {
+				  if (config_lp_source() == 0) acq_lp_disarm_analog();
+				  else                         lp_disarm_digital(config_ext_trigger_input());
+				  lp_armed = 0;
+				  NextState = MAIN_IDLE;
+				  break;
+			  }
+
+			  /* Step 2: handle any ESP32 command that arrived while armed.
+			   * lp_dispatch_cmd() returns 1 for SETTINGS_MODE (caller must
+			   * disarm + acq_stop + go to MAIN_CONFIG) and 0 for NOP/unknown.
+			   * After handling a non-CONFIG command we fall through to step 3
+			   * so a simultaneously latched trigger is not lost. */
+			  if (spi_ctrl_msg_received())
+			  {
+				  if (lp_dispatch_cmd())
+				  {
+					  /* SETTINGS_MODE: discard any pending trigger (intentional —
+					   * user is reconfiguring) and exit LP entirely. */
+					  if (config_lp_source() == 0) acq_lp_disarm_analog();
+					  else                         lp_disarm_digital(config_ext_trigger_input());
+					  lp_armed = 0;
+					  acq_stop();
+					  NextState = MAIN_CONFIG;
+					  break;
+				  }
+				  /* Non-CONFIG command: responded inside lp_dispatch_cmd().
+				   * Fall through to step 3 — check fired in the SAME pass. */
+			  }
+
+			  /* Step 3: evaluate trigger.
+			   * acq_lp_triggered() is only called here, after any message has
+			   * been consumed (or no message arrived), so a latched lp_awd_fired
+			   * survives any number of message passes. */
+			  uint8_t fired = 0;
+			  if (config_lp_source() == 0)
+			  {
+				  fired = acq_lp_triggered();
+			  }
+			  else if (lp_pin_edge_seen)
+			  {
+				  /* Fix I2: read + clear atomically to avoid a fresh EXTI edge
+				   * being wiped by the lp_pin_edge_seen = 0 clear below. */
+				  __disable_irq();
+				  GPIO_PinState s = HAL_GPIO_ReadPin(GPIOB, config_ext_trigger_input());
+				  uint8_t active = (config_lp_edge() == 0) ? (s == GPIO_PIN_SET) : (s == GPIO_PIN_RESET);
+				  if (!active)
+					  lp_pin_edge_seen = 0;                  /* bounced away: re-wait */
+				  __enable_irq();
+				  /* debounce elapsed check is outside the critical section */
+				  if (active && HAL_GetTick() - lp_pin_edge_tick >= config_debounce_time_ext_input())
+					  fired = 1;
+			  }
+
+			  if (fired)
+			  {
+				  if (config_lp_source() == 0) acq_lp_disarm_analog();
+				  else                         lp_disarm_digital(config_ext_trigger_input());
+				  lp_armed = 0;
+
+				  lp_capturing = 1;
+				  lp_capture_deadline = HAL_GetTick() + (uint32_t)config_lp_duration_s() * 1000u;
+
+				  tim3_counter = 0;
+				  frame_reset();
+				  time_result_write_ptr = 0;
+				  TIM3->CNT = 0;
+				  NextState = MAIN_LOGGING;
+				  HAL_TIM_Base_Start_IT(&htim3);
+				  break;
+			  }
+
+			  /* Step 4: keep an SPI receive posted, then sleep until an IRQ */
+			  if (spi_ctrl_isIdle())
+			  {
+				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
+			  }
+#if LP_USE_WFI
+			  __WFI();   /* Sleep mode; SysTick/AWD/EXTI/SPI IRQs all wake us */
+#endif
+			  break;
+		  }
 
 		  case MAIN_CONFIG:
 
