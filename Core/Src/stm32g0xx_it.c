@@ -183,7 +183,14 @@ void EXTI4_15_IRQHandler(void)
   /* USER CODE END EXTI4_15_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(STM_ADC_EN_Pin);
   /* USER CODE BEGIN EXTI4_15_IRQn 1 */
-
+  /* LP digital trigger: DIGITAL_IN_0..5 share this vector (PB10..PB15).
+   * Pending flags are only set for pins configured as EXTI (LP-armed). */
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_0_Pin);
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_1_Pin);
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_2_Pin);
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_3_Pin);
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_4_Pin);
+  HAL_GPIO_EXTI_IRQHandler(DIGITAL_IN_5_Pin);
   /* USER CODE END EXTI4_15_IRQn 1 */
 }
 

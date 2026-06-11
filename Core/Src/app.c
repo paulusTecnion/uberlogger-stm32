@@ -57,12 +57,49 @@ static uint16_t tbuffer[8];
 adc_resolution_t adc_resolution = ADC_12_BITS;            /* shared: acquisition.c/framing.c/config.c (hot-ISR read, stays extern) */
 static uint16_t adcCounter = 0;
 
+/* --- Low-power digital trigger (spec §4.1) ---
+ * lp_armed gates the EXTI callbacks below; lp_pin_edge_tick latches the edge
+ * time so the main loop can confirm the level after the debounce window. */
+static volatile uint8_t  lp_armed = 0;
+static volatile uint8_t  lp_pin_edge_seen = 0;
+static volatile uint32_t lp_pin_edge_tick = 0;
+
+static void lp_arm_digital(uint16_t pin, uint8_t edge)
+{
+	GPIO_InitTypeDef g = {0};
+	g.Pin  = pin;
+	g.Mode = (edge == 0) ? GPIO_MODE_IT_RISING : GPIO_MODE_IT_FALLING;
+	g.Pull = GPIO_NOPULL;
+	lp_armed = 0;              /* gate the ISR latch during (re)configuration */
+	lp_pin_edge_seen = 0;
+	HAL_GPIO_Init(GPIOB, &g);  /* EXTI4_15_IRQn is already enabled (STM_ADC_EN) */
+	/* HAL_GPIO_Init does not clear RPR1/FPR1: flush any stale pending edge so a
+	 * pre-arm transition cannot fire the moment the caller sets lp_armed. */
+	__HAL_GPIO_EXTI_CLEAR_RISING_IT(pin);
+	__HAL_GPIO_EXTI_CLEAR_FALLING_IT(pin);
+}
+
+static void lp_disarm_digital(uint16_t pin)
+{
+	GPIO_InitTypeDef g = {0};
+	g.Pin  = pin;
+	g.Mode = GPIO_MODE_INPUT;  /* back to the plain-input config from MX_GPIO_Init */
+	g.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIOB, &g);
+	lp_pin_edge_seen = 0;
+}
+
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == STM_ADC_EN_Pin)
 	{
 			logging_en = 1;
+	}
+	else if (lp_armed && GPIO_Pin == config_ext_trigger_input())
+	{
+		lp_pin_edge_seen = 1;
+		lp_pin_edge_tick = HAL_GetTick();
 	}
 }
 
@@ -74,6 +111,11 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 
 		logging_en = 0;
 
+	}
+	else if (lp_armed && GPIO_Pin == config_ext_trigger_input())
+	{
+		lp_pin_edge_seen = 1;
+		lp_pin_edge_tick = HAL_GetTick();
 	}
 }
 
