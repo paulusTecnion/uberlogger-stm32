@@ -23,6 +23,13 @@ uint8_t  frame_take_ready(uint8_t **buf, uint16_t *len);
  * Mirrors the legacy msg_1-vs-msg_2 selection EXACTLY. */
 void     frame_take_last(uint8_t **buf, uint16_t *len, uint8_t singleshot, adc_resolution_t res);
 
+/* LP tail: hand back the in-progress half with dataLen set to the TRUE number
+ * of valid lines written since the last frame boundary (0 = nothing pending).
+ * frame_take_last() can't be used for this: it leaves dataLen at whatever the
+ * previous full frame wrote, making a boundary-stop tail indistinguishable
+ * from a stale duplicate frame (found on the bench, Plan 2 Task 6 review). */
+void     frame_take_last_partial(uint8_t **buf, uint16_t *len, adc_resolution_t res);
+
 /* Accessors so the state machine can read framing-owned bookkeeping without an extern.
  * (legacy code read these directly in main.c) */
 uint8_t  frame_adc_16b_is_half(void);

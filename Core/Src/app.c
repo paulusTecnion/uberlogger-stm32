@@ -190,16 +190,14 @@ static uint8_t lp_dispatch_cmd(void)
 		case STM32_CMD_SEND_LAST_ADC_BYTES:
 		{
 			/* After an LP capture ends the ESP32 collects the final partial
-			 * frame while we already sit in LP_PRECHECK/LP_ARMED. Serve it
-			 * exactly like MAIN_IDLE does, or the capture tail is lost
-			 * (found on the bench: missing last partial frame). */
+			 * frame while we already sit in LP_PRECHECK/LP_ARMED. Serve the
+			 * in-progress half with its TRUE pending line count: the legacy
+			 * frame_take_last() leaves dataLen at the previous full frame's
+			 * value, so a boundary-stop tail came back as a stale duplicate
+			 * frame (found on the bench). _singleshot is not an LP concern. */
 			uint8_t *buf; uint16_t len;
-			frame_take_last(&buf, &len, _singleshot, adc_resolution);
+			frame_take_last_partial(&buf, &len, adc_resolution);
 			spi_ctrl_send(buf, len);
-			if (adc_resolution == ADC_16_BITS && (!frame_adc_16b_is_half() || _singleshot))
-			{
-				_singleshot = 0;
-			}
 			return 0;
 		}
 
@@ -575,6 +573,7 @@ void app_run_once(void)
 				  time_result_write_ptr = 0;
 				  TIM3->CNT = 0;
 				  NextState = MAIN_LOGGING;
+				  __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_UPDATE); /* a pending UIF from the armed period would instantly append the stale pre-trigger sample */
 				  HAL_TIM_Base_Start_IT(&htim3);
 				  break;
 			  }

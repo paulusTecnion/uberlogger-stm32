@@ -197,6 +197,29 @@ uint8_t frame_take_ready(uint8_t **buf, uint16_t *len)
 	return 1;
 }
 
+/* LP tail: hand back the in-progress half with dataLen set to the TRUE number
+ * of valid lines written since the last frame boundary (0 = nothing pending).
+ * frame_take_last() can't be used for this: it leaves dataLen at whatever the
+ * previous full frame wrote, making a boundary-stop tail indistinguishable
+ * from a stale duplicate frame (found on the bench, Plan 2 Task 6 review). */
+void frame_take_last_partial(uint8_t **buf, uint16_t *len, adc_resolution_t res)
+{
+	(void)res; /* both halves carry both layouts; selection is by write half, not resolution */
+
+	/* gpio_is_half is the authoritative write-half selector used by
+	 * frame_append_line(): 0 = lines are being deposited into msg_1,
+	 * 1 = into msg_2. gpio_result_write_ptr counts the COMPLETE lines
+	 * written into that half since the last boundary. */
+	if (!gpio_is_half)
+	{
+		spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr;
+		*buf = (uint8_t*)spi_msg_slow_freq_1; *len = sizeof(spi_msg_1_t);
+	} else {
+		spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr;
+		*buf = (uint8_t*)spi_msg_slow_freq_2; *len = sizeof(spi_msg_2_t);
+	}
+}
+
 void frame_take_last(uint8_t **buf, uint16_t *len, uint8_t singleshot, adc_resolution_t res)
 {
 	if (res == ADC_16_BITS)

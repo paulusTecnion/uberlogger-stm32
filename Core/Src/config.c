@@ -350,6 +350,7 @@ uint8_t Config_set_debounceTime(uint32_t debounceTime)
 
 uint8_t Config_Set_Time(uint32_t epoch)
 {
+	if (epoch < 946684800UL) return 1;  /* reject pre-2000: Year would underflow into BCD wrap (bench: 2066 filenames) */
 
 	RTC_TimeTypeDef time = {0};
 	RTC_DateTypeDef date = {0};
