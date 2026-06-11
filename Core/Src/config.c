@@ -60,6 +60,38 @@ uint8_t  config_trigger_mode(void)            { return _trigger_mode; }
 uint16_t config_ext_trigger_input(void)       { return ext_trigger_input; }
 uint32_t config_debounce_time_ext_input(void) { return _debounce_time_ext_input; }
 
+/* Low-power trigger settings (config-owned; spec §4.1). */
+#define LP_SOURCE_ANALOG  0
+#define LP_SOURCE_DIGITAL 1
+static uint8_t  _lp_source     = LP_SOURCE_ANALOG;
+static uint8_t  _lp_channel    = 1;
+static uint16_t _lp_threshold  = 2048;
+static uint8_t  _lp_edge       = 0;
+static uint16_t _lp_duration_s = 10;
+
+uint8_t  config_lp_source(void)     { return _lp_source; }
+uint8_t  config_lp_channel(void)    { return _lp_channel; }
+uint16_t config_lp_threshold(void)  { return _lp_threshold; }
+uint8_t  config_lp_edge(void)       { return _lp_edge; }
+uint16_t config_lp_duration_s(void) { return _lp_duration_s; }
+
+uint8_t Config_set_lpConfig(uint8_t source, uint8_t channel, uint16_t threshold,
+                            uint8_t edge, uint16_t duration_s)
+{
+	if (source > LP_SOURCE_DIGITAL) return 1;
+	if (edge > 1) return 1;
+	if (duration_s == 0) return 1;
+	if (source == LP_SOURCE_ANALOG  && (channel < 1 || channel > 8)) return 1;
+	if (source == LP_SOURCE_DIGITAL && (channel < 1 || channel > 6)) return 1;
+
+	_lp_source = source;
+	_lp_channel = channel;
+	_lp_threshold = threshold;
+	_lp_edge = edge;
+	_lp_duration_s = duration_s;
+	return 0;
+}
+
 void Config_Handler(spi_cmd_t *  cmd)
 {
 //	spi_cmd_t * cmd = (spi_cmd_t*) msg->message_payload;
@@ -188,6 +220,24 @@ void Config_Handler(spi_cmd_t *  cmd)
 
 
 
+			  case STM32_CMD_SET_LP_CONFIG:
+			  {
+				  uint16_t lpThreshold, lpDuration;
+				  memcpy((void*)&lpThreshold, (const void*)&cmd->data2, sizeof(lpThreshold));
+				  memcpy((void*)&lpDuration,  (const void*)&cmd->data5, sizeof(lpDuration));
+
+				  resp.command = STM32_CMD_SET_LP_CONFIG;
+				  if (!Config_set_lpConfig(cmd->data, cmd->data1, lpThreshold,
+						  cmd->data4, lpDuration))
+				  {
+					  resp.data = CMD_RESP_OK;
+				  } else {
+					  resp.data = CMD_RESP_NOK;
+				  }
+				  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
+				  break;
+			  }
+
 			  default:
 				  resp.command = CMD_UNKNOWN;
 				  resp.data = CMD_RESP_NOK;
@@ -228,7 +278,7 @@ uint8_t Config_set_logMode(uint8_t logtype, uint8_t data_lines_per_transaction)
 
 uint8_t Config_set_triggerMode(uint8_t mode, uint8_t gpio)
 {
-	if ((mode > TRIGGER_MODE_EXTERNAL_CONTROL) || ((gpio < 1) || (gpio > 6)))
+	if ((mode > TRIGGER_MODE_LOW_POWER) || ((gpio < 1) || (gpio > 6)))
 		return 1;
 	_trigger_mode = mode;
 

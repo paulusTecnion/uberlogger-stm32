@@ -48,6 +48,15 @@ uint8_t Config_set_debounceTime(uint32_t debounceTime);
 uint8_t  config_trigger_mode(void);
 uint16_t config_ext_trigger_input(void);
 uint32_t config_debounce_time_ext_input(void);
+
+/* Low-power trigger config (set via STM32_CMD_SET_LP_CONFIG). */
+uint8_t  Config_set_lpConfig(uint8_t source, uint8_t channel, uint16_t threshold,
+                             uint8_t edge, uint16_t duration_s);
+uint8_t  config_lp_source(void);      /* 0=analog, 1=digital */
+uint8_t  config_lp_channel(void);     /* 1-based: AIN 1-8 / DIO 1-6 */
+uint16_t config_lp_threshold(void);   /* raw counts at the configured resolution */
+uint8_t  config_lp_edge(void);        /* 0=rising-above, 1=falling-below */
+uint16_t config_lp_duration_s(void);
 #endif
 
 
