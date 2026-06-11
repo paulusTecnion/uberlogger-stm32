@@ -74,14 +74,18 @@ enum  {
 	MAIN_SINGLE_SHOT,
 	MAIN_SINGLE_SHOT_AWAIT_RESULT,
 	MAIN_WAIT_FOR_TRIGGER,
-	MAIN_ERROR
+	MAIN_ERROR,
+	MAIN_LP_PRECHECK,
+	MAIN_LP_ARMED
 };
 
 
 enum {
 	TRIGGER_MODE_CONTINUOUS =0,
 	TRIGGER_MODE_EXTERNAL,
-	TRIGGER_MODE_EXTERNAL_CONTROL
+	TRIGGER_MODE_EXTERNAL_CONTROL,
+	/* value 3 on the wire in STM32_CMD_SET_TRIGGER_MODE payload (ul_protocol.h) */
+	TRIGGER_MODE_LOW_POWER
 };
 
 /* s_date_time_t, the SPI layout #defines, spi_msg_1_t/spi_msg_2_t and their

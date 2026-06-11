@@ -31,7 +31,7 @@
  *   - uberlogger-stm32 : Core/Inc/ul_protocol.h
  *   - uberlogger-esp32 : main/ul_protocol.h
  * The two copies MUST be diff-clean. UL_PROTOCOL_VERSION is the sync tripwire:
- * each repo has a build-visible _Static_assert(UL_PROTOCOL_VERSION == 1, ...)
+ * each repo has a build-visible _Static_assert(UL_PROTOCOL_VERSION == <current>, ...)
  * so a stale copy fails the build. Prose companion: see
  * uberlogger-stm32/docs/protocol/uberlogger-spi-protocol.md.
  *
@@ -66,9 +66,12 @@
 #include <stddef.h>
 
 /* Protocol contract version. Bump ONLY with an intentional wire change.
- * Both vendored copies must carry the same value; each repo asserts it. */
-#define UL_PROTOCOL_VERSION 1
-_Static_assert(UL_PROTOCOL_VERSION == 1, "ul_protocol.h: unexpected UL_PROTOCOL_VERSION");
+ * Both vendored copies must carry the same value; each repo asserts it.
+ * v2 (2026-06-11): STM32_CMD_SET_LP_CONFIG, STM32_CMD_SET_ARMED_WINDOW,
+ *   STM32_CMD_GET_DATETIME added (0x0E-0x10). ESP32 copy migration happens
+ *   in a later plan — the ESP32 still uses its own spi_control.h. */
+#define UL_PROTOCOL_VERSION 2
+_Static_assert(UL_PROTOCOL_VERSION == 2, "ul_protocol.h: unexpected UL_PROTOCOL_VERSION");
 
 /* ===========================================================================
  * Command set (ESP32 -> STM32 command path)
@@ -89,7 +92,15 @@ typedef enum stm32cmd {
     STM32_CMD_SET_LOGMODE,
     STM32_CMD_SET_RANGE,
     STM32_CMD_SET_TRIGGER_MODE,
-    CMD_UNKNOWN
+    CMD_UNKNOWN,                       /* 0x0D — wire-pinned: sent as the unknown-cmd response */
+    /* --- protocol v2: low-power triggered mode (spec 2026-06-11) --- */
+    STM32_CMD_SET_LP_CONFIG    = 0x0E, /* data=source(0=analog,1=digital) data1=channel(1-based)
+                                          data2..3=threshold raw LE u16 (counts at current resolution) (fields .data2/.data3)
+                                          data4=edge(0=rising-above,1=falling-below)
+                                          data5..6=duration LE u16 (seconds, >=1) (fields .data5/.data6) */
+    STM32_CMD_SET_ARMED_WINDOW = 0x0F, /* reserved: implemented in a later plan
+                                          data=enable data1..2=start LE u16 (fields .data1/.data2) data3..4=end (min since midnight, LE u16) (fields .data3/.data4) */
+    STM32_CMD_GET_DATETIME     = 0x10  /* reserved: implemented in a later plan. No request payload; STM32 -> ESP32 response layout TBD at implementation (will carry RTC date/time for ESP32 clock re-sync). */
 } stm32cmd_t;
 
 /* Historical STM32 alias for the command enum (see reconciliation note). */
