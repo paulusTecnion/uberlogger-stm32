@@ -1,3 +1,4 @@
+
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -15,6 +16,32 @@
   *
   ******************************************************************************
   */
+
+  /*
+ * MIT License
+ *
+ * Copyright (c) 2025 Tecnion Technologies
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+ 
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -28,6 +55,9 @@
 #include "spi_ctrl.h"
 #include "iirfilter.h"
 #include "adc_comp_lut.h"
+#include "framing.h"
+#include "acquisition.h"
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,110 +90,11 @@ TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
-TIM_HandleTypeDef htim3_bak;
-uint8_t MainState = MAIN_IDLE, NextState = MAIN_IDLE;
-uint8_t logging_en = 0;
-uint8_t msgRx = 0;
-uint8_t cmd_buffer[ 20];
-//spi_cmd_t cmd_buffer;
-
+/* The application state machine and its globals (MainState/NextState,
+ * logging_en, cmd_buffer, the trigger/debounce vars, the settings-ish
+ * adc_resolution/logMode/etc., and the htim3_bak snapshot) now live in app.c.
+ * Only the CubeMX HAL handles (above) and the boot-time hadc1 backup remain. */
 ADC_HandleTypeDef hadc1_bak;
-
-uint8_t main_exit_config = 0;
-
-volatile uint16_t data_buffer_write_ptr = 0;
-volatile uint32_t gpio_result_write_ptr = 0;
-volatile uint32_t time_result_write_ptr = 0;
-volatile uint16_t ext_trigger_input = DIGITAL_IN_0_Pin;
-uint8_t ext_trigger_input_value = 0;
-uint8_t ext_trigger_input_value_debounced = 0;
-
-static uint8_t adc_is_half = 0, adc_16b_is_half=0;
-static uint8_t _singleshot = 0;
-uint8_t _trigger_mode = TRIGGER_MODE_CONTINUOUS; // indicates if trigger mode is disabled (TRIGGER_MODE_CONTINUOUS) or by external trigger (TRIGGER_MODE_EXTERNAL)
-uint32_t _debounce_time_ext_input = 0;
-uint32_t _debounce_prev_time = 0 ;
-static RTC_TimeTypeDef current_time;
-static RTC_DateTypeDef current_date;
-
-// Variable for retrieving the
-s_date_time_t current_date_time;
-
-uint16_t tim3_counter = 0;
-uint8_t tim14_event = 0;
-
-//typedef struct {
-//    uint8_t startByte[START_STOP_NUM_BYTES];
-//    uint16_t dataLen;
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-//    uint8_t padding3;
-//    uint8_t padding4;
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-//    union {
-//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-//    };
-//} spi_msg_1_t;
-//
-//typedef struct {
-//    union {
-//    	uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-//    	uint16_t adcData_u16[ADC_VALUES_PER_SPI_TRANSACTION];
-//    };
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-//    uint8_t padding1;
-//    uint8_t padding2;
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-//    uint16_t dataLen;
-//    uint8_t stopByte[START_STOP_NUM_BYTES];
-//} spi_msg_2_t;
-//
-//typedef struct   __attribute__((aligned(4)))  {
-//    uint8_t msg_no;
-//	uint16_t dataLen;
-//    uint8_t padding1[11];
-//    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
-//    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
-//    union
-//    {
-//        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
-//        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION]; // 560
-//    };
-//    // uint16_t crc;
-//} spi_msg_slow_freq_t;
-
-
-uint8_t data_buffer[sizeof(spi_msg_1_t) + sizeof(spi_msg_2_t)];
-
-//spi_msg_1_t * spi_msg_1_ptr = (spi_msg_1_t*) data_buffer;
-uint16_t  *adc_data_u16;
-//spi_msg_2_t * spi_msg_2_ptr = (spi_msg_2_t*) (data_buffer + sizeof(spi_msg_1_t)) ;
-
-spi_msg_1_t * spi_msg_slow_freq_1 = (spi_msg_1_t *)(data_buffer);
-spi_msg_2_t * spi_msg_slow_freq_2 = (spi_msg_2_t *)(data_buffer + sizeof(spi_msg_1_t));
-
-log_mode_t logMode = LOGMODE_CSV;
-uint8_t _data_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
-
-extern uint8_t spi_ctrl_state;
-uint8_t overrun = 0, adc_ready = 0, gpio_is_half=0, gpio_ready=0;
-uint8_t datardypin;
-uint8_t busy = 0;
-uint16_t adc16bBuffer[16];
-uint16_t adc12Buffer[8*8];
-uint16_t tbuffer[8];
-uint16_t correctedAdc = 0;
-uint16_t iirFilter[8];
-
-adc_resolution_t adc_resolution = ADC_12_BITS;
-adc_channel_range_t adc_voltage_range_g = ADC_RANGE_10V;
-uint16_t adcCounter = 0;
-
-extern lut_t * active_lut_table[NUM_ADC_CHANNELS];
-
-
-uint8_t spi_lines_per_transaction = DATA_LINES_PER_SPI_TRANSACTION;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -183,228 +114,13 @@ static void MX_TIM16_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// From https://github.com/LonelyWolf/stm32/blob/master/stm32l-dosfs/RTC.c
-// Convert epoch time to Date/Time structures
-
-
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-
-	if (htim == &htim14)
-	{
-		// Disable interrupt
-//		TIM14->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
-
-		TIM14->CNT = 0;
-		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_TX_TIMEOUT);
-	}
-
-	if (htim == &htim16)
-	{
-//		TIM16->DIER &= ~TIM_DIER_UIE;
-//		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
-		//		CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
-		TIM16->CNT = 0;
-		// Indicate timeout
-		SET_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
-	}
-
-	if (htim == &htim3 )
-	  {
-
-
-		if (busy)
-		{
-			Error_Handler();
-		}
-		busy = 1;
-
-
-		 // Check which version of the timer triggered this callback and toggle LED
-		// Should be RTC_FORMAT_BCD, but there's a bug in the HAL_RTC_Gettime function
-		HAL_RTC_GetTime(&hrtc, &current_time, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &current_date, RTC_FORMAT_BIN);
-
-
-		current_date_time.year = current_date.Year;
-		current_date_time.month = current_date.Month;
-		current_date_time.date = current_date.Date;
-		current_date_time.hours = current_time.Hours;
-		current_date_time.minutes = current_time.Minutes;
-		current_date_time.seconds = current_time.Seconds;
-		// Next line not 100% correct!
-		current_date_time.subseconds = 1000 * (current_time.SecondFraction - current_time.SubSeconds) / (current_time.SecondFraction + 1);
-
-		// Are still in the first ADC half?
-		if (!gpio_is_half)
-		{
-			// 0x50000411 = GPIOB, 2nd byte (GPIOB8 to GPIOB15)
-//			spi_msg_1_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			spi_msg_slow_freq_1->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_1_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			memcpy((void*)&spi_msg_slow_freq_1->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-//			spi_msg_1_ptr->dataLen = gpio_result_write_ptr +1 ;
-			spi_msg_slow_freq_1->dataLen = gpio_result_write_ptr +1 ;
-		} else { // If not, we fill the second part
-//			spi_msg_2_ptr->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-			spi_msg_slow_freq_2->gpioData[gpio_result_write_ptr] = (GPIOB->IDR >> 8);
-//			memcpy((void*)&spi_msg_2_ptr->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-			memcpy((void*)&spi_msg_slow_freq_2->timeData[gpio_result_write_ptr], &current_date_time, sizeof(s_date_time_t));
-//			spi_msg_2_ptr->dataLen = gpio_result_write_ptr+1;
-			spi_msg_slow_freq_2->dataLen = gpio_result_write_ptr +1 ;
-		}
+// The ADC/TIM3 sample path and its HAL weak callbacks
+// (HAL_TIM_PeriodElapsedCallback, HAL_ADC_ConvHalfCpltCallback,
+// HAL_ADC_ConvCpltCallback, HAL_ADC_ErrorCallback, and the former Adc_start)
+// now live in acquisition.c.
 //
-
-
-		// In case we are doing 16 bits, we manually need to copy data from the IIR filter buffer to the adc
-		if (adc_resolution == ADC_16_BITS)
-		{
-			if (!adc_16b_is_half)
-			{
-				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			} else {
-				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			}
-		} else {
-			if (!adc_is_half)
-			{
-        // in 12 bit mode we copy from the buffer "iirFilter", but the actual IIR filter is not used in 12 bits mode. 
-//				memcpy((uint8_t*)spi_msg_1_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-				memcpy((uint8_t*)spi_msg_slow_freq_1->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			} else {
-//				memcpy((uint8_t*)spi_msg_2_ptr->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-				memcpy((uint8_t*)spi_msg_slow_freq_2->adcData + 2*8*gpio_result_write_ptr, iirFilter, 8*2);
-			}
-		}
-
-
-		tim3_counter++;
-		gpio_result_write_ptr++;
-
-
-		if (gpio_result_write_ptr >= spi_lines_per_transaction)
-		{
-			gpio_is_half = !gpio_is_half;
-			gpio_ready = 1;
-
-			// when in 16 bit mode, manually set adc_ready flag
-			if (adc_resolution == ADC_16_BITS)
-			{
-				adc_16b_is_half = ~adc_16b_is_half;
-				// adc_ready = 1;
-			} else {
-				adc_is_half = ~adc_is_half;
-		  }
-		  adc_ready = 1;
-		}
-
-		gpio_result_write_ptr = gpio_result_write_ptr % spi_lines_per_transaction;
-		// if gpio_result_write_ptr is back to 0, we need to manually set the adc_16b_is_half byte
-
-	  }
-	  busy = 0; // reset interrupt timeout
-}
-
-
-
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
-{
-
-		if (adc_resolution == ADC_12_BITS)
-		{
-//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
-//			{
-//				spi_msg_1_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_1_ptr->adcData_u16[i]));
-//			}
-
-			for (int i = 0; i<8; i++)
-			{
-				//  correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i]));
-			}
-
-		} else {
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				correctedAdc = adc_comp(active_lut_table[i],&(adc16bBuffer[i]));
-				// Then filter
-				iir_filter(&correctedAdc, &(iirFilter[i]), i);
-			}
-		}
-
-}
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-		
-		if (adc_resolution == ADC_12_BITS)
-		{
-//			for (int i = 0; i < ADC_VALUES_PER_SPI_TRANSACTION; i++)
-//			{
-//				spi_msg_2_ptr->adcData_u16[i] = adc_comp_12b(&(spi_msg_2_ptr->adcData_u16[i]));
-//			}
-
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				iirFilter[i] = adc_comp(active_lut_table[i], &(adc12Buffer[i+8*4]));
-			}
-		
-		} else {
-			for (int i = 0; i<8; i++)
-			{
-				// First correct adc values for non-linearities
-				correctedAdc = adc_comp(active_lut_table[i], &(adc16bBuffer[i+8]));
-				// Then filter
-				iir_filter(&correctedAdc, &(iirFilter[i]), i);
-			}
-		}
-
-}
-
-void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
-{
-
-}
-
-void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
-{
-	if (GPIO_Pin == STM_ADC_EN_Pin)
-	{
-			logging_en = 1;
-	}
-}
-
-void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
-{
-	if (GPIO_Pin == STM_ADC_EN_Pin)
-	{
-		//HAL_SPI_DMAStop(&hspi1);
-
-		logging_en = 0;
-
-	}
-}
-
-void Adc_start()
-{
-	if (adc_resolution == ADC_12_BITS)
-	{
-		HAL_ADC_Start_DMA(
-		&hadc1,
-		(uint32_t*)(adc12Buffer),
-		8*8);
-	} else {
-		HAL_ADC_Start_DMA(
-		&hadc1,
-		(uint32_t*)(adc16bBuffer),
-		16);
-	}
-}
+// The application state machine (the former while(1) body), its globals, and
+// the HAL_GPIO_EXTI_Rising/Falling weak callbacks now live in app.c.
 
 
 /* USER CODE END 0 */
@@ -425,9 +141,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-//  PWR->CR1 |= PWR_CR1_DBP; // disable write protect
-//  RCC->BDCR |= 0x18; // Max drive strenght for LSE
-//  PWR->CR1 &= ~PWR_CR1_DBP; // enable write protect
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -451,14 +164,7 @@ int main(void)
 
   // Set MISO pin drive strenght to High speed (bit 8 and 9 = '10' (bit 9 = 1))
   GPIOB->OSPEEDR |= (0x0200);
-  adc_data_u16 = (uint16_t*)spi_msg_slow_freq_1->adcData;
 
-  // Enable TIM1 interrupt
-//  TIM1->DIER |= TIM_DIER_UIE;
-//  NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
-
-
-//  prev_date_time.subseconds = 9999;
   // Backup current adc settings
   hadc1_bak = hadc1;
 
@@ -475,26 +181,12 @@ int main(void)
   CLEAR_BIT(TIM14->DIER, TIM_DIER_UIE);
   CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
 
-  memset(spi_msg_slow_freq_1->adcData, 0, sizeof(spi_msg_slow_freq_1->adcData));
-  memset(spi_msg_slow_freq_2->adcData, 0, sizeof(spi_msg_slow_freq_2->adcData));
-
-  memset(data_buffer, 0, sizeof(data_buffer));
-
-  spi_msg_slow_freq_1->startByte[0] = 0xFA;
-  spi_msg_slow_freq_1->startByte[1] = 0xFB;
-
-  spi_msg_slow_freq_2->stopByte[0] = 0xFB;
-  spi_msg_slow_freq_2->stopByte[1] = 0xFA;
+  frame_init();
 
 
-  HAL_ADCEx_Calibration_Start(&hadc1);
-  Adc_start();
-  busy = 1;
-//  for (int i=0; i<sizeof(spi_msg_1_ptr->adcData)/2; i = i + 8)
-//  {
-//	  ((uint16_t*)spi_msg_1_ptr->adcData)[i] = (uint16_t)i;
-//	  ((uint16_t*)spi_msg_2_ptr->adcData)[i] = (uint16_t)i+(sizeof(spi_msg_1_ptr->adcData)/2);
-//  }
+  acq_init();
+
+  app_init();
 
   /* USER CODE END 2 */
 
@@ -505,367 +197,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  spi_ctrl_loop();
-//	  Config_Handler();
-	  datardypin = HAL_GPIO_ReadPin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin);
-
-	  busy = 0; // reset interrupt timeout
-
-	  // forward trigger input to esp32
-	  if (HAL_GPIO_ReadPin(GPIOB, ext_trigger_input))
-	  {
-	      // Input is high and hasn't been debounced yet
-	      if (ext_trigger_input_value_debounced == 0)
-	      {
-	          // Start debouncing: set the previous time to the current time
-	          _debounce_prev_time = HAL_GetTick();
-	          ext_trigger_input_value_debounced = 1;  // Mark as debouncing
-	      }
-
-	      // Check if debounce time has passed
-	      if ((HAL_GetTick() - _debounce_prev_time > _debounce_time_ext_input))
-	      {
-	    	  ext_trigger_input_value = 1;  // Set the output high
-	      }
-	  }
-	  else
-	  {
-	      // Input is low, reset debouncing and immediately set output low
-	      ext_trigger_input_value = 0;
-	      ext_trigger_input_value_debounced = 0;  // Reset debouncing state
-	      _debounce_prev_time = HAL_GetTick();    // Reset debounce timer
-	  }
-
-	  HAL_GPIO_WritePin(EXT_PIN_VALUE_GPIO_Port, EXT_PIN_VALUE_Pin, ext_trigger_input_value);
-
-
-	  // if (is16bitmode)
-	  // {
-		//   memcpy(tbuffer, adc16bBuffer, 16);
-		//   for (int p = 0; p<8; p++)
-		//   {
-		// 	  tbuffer[p] = tbuffer[p] >> 4;
-		//   }
-	  // } else {
-		//   memcpy(tbuffer, spi_msg_1_ptr->adcData, 16);
-	  // }
-
-
-
-	  switch(MainState)
-	  {
-	  	  case MAIN_WAIT_FOR_TRIGGER:
-
-
-	  		if (ext_trigger_input_value && logging_en)
-	  		{
-	  			// Debounce the input
-
-	  				// start the ADC timer
-	  			  tim3_counter = 0;
-				  adc_is_half = 0;
-				  adc_16b_is_half = 0;
-				  adc_ready = 0;
-				  gpio_result_write_ptr = 0;
-				  time_result_write_ptr = 0;
-				  gpio_is_half = 0;
-				  gpio_ready = 0;
-				  TIM3->CNT = 0;
-				  NextState = MAIN_LOGGING;
-				  HAL_TIM_Base_Start_IT(&htim3);
-
-	  		} else if (!logging_en){
-	  			NextState = MAIN_IDLE;
-	  		}
-
-		  break;
-
-	  	  case MAIN_LOGGING:
-
-	  		// Forward the state of the external input to the ESP32 via EXT_PIN_VALUE_Pin
-	  		// This way the ESP32 knows logging has stopped and data needs to be retrieved.
-
-	  		if (adc_ready && gpio_ready)
-			{
-	//			gpio_result_write_ptr = 0;
-	//			time_result_write_ptr = 0;
-				// Half way we have the pointers start at the beginning
-//				if (READ_BIT(spi_ctrl_state,SPI_CTRL_SENDING))
-//				{
-//					overrun = 1;
-//				}
-
-				tim3_counter=0;
-
-				if (adc_resolution == ADC_16_BITS)
-				{
-
-					if (adc_16b_is_half)
-					{
-	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-					}
-
-				} else {
-
-					if (adc_is_half)
-					{
-	//					uint16_t * adcData = (uint16_t*)spi_msg_1_ptr->adcData;
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-					} else {
-						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-//						spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-					}
-				}
-
-				adc_ready = 0;
-				gpio_ready = 0;
-
-			}
-
-
-	  	  if ((!logging_en || overrun) || (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL))
-		  {
-//				  if (overrun)
-//				  {
-//					  HAL_GPIO_WritePin(DATA_OVERRUN_GPIO_Port , DATA_OVERRUN_Pin, SET);
-//				  }
-//				  overrun =0;
-			  // reset the this variable to 0, since we expect that a "
-
-			  HAL_TIM_Base_Stop_IT(&htim3);
-
-			  // Delay of 50 ms, since signal ringing may cause a retrigger of LOGGING state
-			  HAL_Delay(50);
-			  // Set ADC to single conversion measure mode
-
-			  if (ext_trigger_input_value == 0 && _trigger_mode == TRIGGER_MODE_EXTERNAL && logging_en)
-			  {
-				  NextState = MAIN_WAIT_FOR_TRIGGER;
-			  } else {
-				  NextState = MAIN_IDLE;
-			  }
-		  }
-		  break;
-
-
-		  case MAIN_IDLE:
-			  // In case logging gets enabled and we are in continuous mode, start the ADC
-			  if (logging_en && spi_ctrl_isIdle() && (_trigger_mode != TRIGGER_MODE_EXTERNAL))
-			  {
-
-				  tim3_counter = 0;
-				  adc_is_half = 0;
-				  adc_16b_is_half = 0;
-				  adc_ready = 0;
-				  gpio_result_write_ptr = 0;
-				  time_result_write_ptr = 0;
-				  gpio_is_half = 0;
-				  gpio_ready = 0;
-				  // Start TIM3 and DMA conversion
-				  TIM3->CNT = 0;
-
-				  NextState = MAIN_LOGGING;
-
-				  HAL_TIM_Base_Start_IT(&htim3);
-
-
-			  } else if (logging_en && spi_ctrl_isIdle() && _trigger_mode == TRIGGER_MODE_EXTERNAL) {
-				 // In this case we wait for the external trigger to become high
-				  _debounce_prev_time = HAL_GetTick();
-				  NextState = MAIN_WAIT_FOR_TRIGGER;
-
-			  } else  {
-				  // Check for events
-
-				  if (spi_ctrl_msg_received())
-				  {
-					spi_cmd_t * cmd = (spi_cmd_t*)&cmd_buffer;
-					spi_cmd_t resp;
-					  switch(cmd->command)
-					  {
-
-						  case STM32_CMD_SETTINGS_MODE:
-							  resp.command = STM32_CMD_SETTINGS_MODE;
-							  resp.data = CMD_RESP_OK;
-					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SETTINGS_MODE, CMD_RESP_OK) == HAL_OK)
-							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
-							  {
-
-								HAL_ADC_Stop_DMA(&hadc1);
-
-								NextState = MAIN_CONFIG;
-							  }
-
-						  break;
-
-						  case STM32_CMD_SINGLE_SHOT_MEASUREMENT:
-
-							  resp.command = STM32_CMD_SINGLE_SHOT_MEASUREMENT;
-							  resp.data = CMD_RESP_OK;
-					//			  if (HAL_SPI_Send_cmd(STM32_CMD_SINGLE_SHOT_MEASUREMENT, CMD_RESP_OK) == HAL_OK)
-							  if (spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t)) == HAL_OK)
-							  {
-								  NextState = MAIN_SINGLE_SHOT;
-							  }
-							  break;
-
-						  case STM32_CMD_SEND_LAST_ADC_BYTES:
-							  if (adc_resolution == ADC_16_BITS)
-							  {
-								  if (!adc_16b_is_half || _singleshot)
-								  {
-									  // adc_is_half == 1 means the last message sent was spi_msg_1
-									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-									  _singleshot = 0;
-								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-								  }
-							  } else {
-								  if (!adc_is_half || _singleshot)
-								  {
-									  // adc_is_half == 1 means the last message sent was spi_msg_1
-									  // So we are now still writing in spi_msg_2.
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_1_t));
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_slow_freq_t));
-								  } else {
-									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_2, sizeof(spi_msg_2_t));
-//									  spi_ctrl_send((uint8_t*)spi_msg_slow_freq_1, sizeof(spi_msg_slow_freq_t));
-								  }
-							  }
-
-
-							  break;
-
-						  case STM32_CMD_NOP:
-					//			  HAL_SPI_Send_cmd(CMD_RESP_OK, CMD_NOP);
-//							  resp.command = CMD_NOP;
-//							  resp.data = CMD_RESP_OK;
-//							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
-							  break;
-
-						  default:
-					//			  HAL_SPI_Send_cmd(CMD_RESP_NOK, CMD_UNKNOWN);
-							  resp.command = STM32_CMD_NOP;
-							  resp.data = CMD_RESP_NOK;
-							  spi_ctrl_send((uint8_t*)&resp, sizeof(spi_cmd_t));
-
-					  }
-
-				  }
-				  // No event occured, check for SPI messages
-				  else if (spi_ctrl_isIdle())
-				  {
-					  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
-				  }
-			  }
-			  break;
-
-		  case MAIN_CONFIG:
-
-			  if (  main_exit_config )
-			  {
-				  NextState = MAIN_IDLE;
-				  // Start the ADC if we are in 16 bit mode.
-//				  if (is16bitmode)
-//				  {
-				  Adc_start();
-//				  }
-
-				  main_exit_config = 0 ;
-				  break;
-			  }
-			  else if (spi_ctrl_msg_received())
-			  {
-				// Forward the message to the config handler
-				Config_Handler((spi_cmd_t*)cmd_buffer);
-				break;
-			  }
-			  // No event occurred, check for SPI messages
-			  else if (spi_ctrl_isIdle())
-			  {
-				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
-			  }
-			  break;
-
-		  case MAIN_SINGLE_SHOT:
-		  {
-			  htim3_bak = htim3;
-			  // Set timer to 100Hz
-//			  Config_Set_Sample_freq(ADC_SAMPLE_RATE_100Hz);
-
-			  tim3_counter = 0;
-			  adc_is_half = 0;
-			  adc_16b_is_half = 0;
-			  gpio_is_half = 0;
-			  adc_ready = 0;
-			  gpio_result_write_ptr = 0;
-			  time_result_write_ptr = 0;
-        _singleshot = 1;
-
-			  TIM3->CNT = 0;
-
-			  HAL_TIM_Base_Start_IT(&htim3);
-//			  HAL_ADCEx_Calibration_Start(&hadc1);
-
-			  // In 16 bit mode we have already started the ADC. Only do this for 12 bit.
-			  // if (!is16bitmode)
-			  // {
-				//   HAL_ADC_Start_DMA(
-				// 	  &hadc1,
-				// 	  (uint32_t*)(spi_msg_1_ptr->adcData),
-				// 	  ADC_BUFFERSIZE_SAMPLES);
-			  // }
-
-
-			  // Wait until first message is sent
-
-			  // Set ADC to single conversion measure mode
-			  NextState = MAIN_SINGLE_SHOT_AWAIT_RESULT;
-
-			  break;
-		  }
-
-		  case MAIN_SINGLE_SHOT_AWAIT_RESULT:
-			  if (spi_ctrl_isIdle())
-			  {
-				  spi_ctrl_receive(cmd_buffer, sizeof(spi_cmd_t));
-			  }
-			  // limit our acquisition to 3 samples
-			  if (gpio_result_write_ptr >= 1 && adc_ready)
-			  {
-				  // uint16_t *adcData = (uint16_t*)(spi_msg_1_ptr->adcData);
-
-				 HAL_TIM_Base_Stop_IT(&htim3);
-//				 if (is16bitmode)
-//				 {
-//					 HAL_ADC_Stop(&hadc1);
-//				 } else {
-				//  if (!is16bitmode)
-				//  {
-				// 	 HAL_ADC_Stop_DMA(&hadc1);
-				//  }
-				 }
-
-
-				//  htim3 = htim3_bak;
-				//  HAL_TIM_Base_Init(&htim3);
-				 NextState = MAIN_IDLE;
-			  // }
-
-		  break;
-
-	  }
-
-	  if (NextState != MainState)
-	  {
-		  MainState = NextState;
-	  }
-
+	  app_run_once();
   }// end of while
   /* USER CODE END 3 */
 }
@@ -1357,53 +689,6 @@ void ADC_Reinit()
 	  }
 
 }
-
-
-
-
-//uint8_t Config_Set_Sample_freq(uint8_t sampleFreq)
-//{
-//	return 1;
-//}
-
-
-//
-//uint8_t Send_OK(void)
-//{
-//
-//	t.t8[0] = RESP_OK;
-//	t.t8[1] = 0x00;
-//	HAL_StatusTypeDef errorcode;
-//
-//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
-//
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-//	if (errorcode == HAL_OK)
-//	{
-//		return 1;
-//	} else {
-//		return 0;
-//	}
-//}
-//uint8_t Send_NOK(void)
-//{
-//
-//	t.t8[0]= RESP_NOK;
-//	t.t8[1] = 0x00;
-//	HAL_StatusTypeDef errorcode;
-//
-//	errorcode = HAL_SPI_TransmitReceive_DMA(&hspi1, t.t8, RxBuffer, 2);
-//	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_SET);
-////	HAL_GPIO_WritePin(STM_DATA_RDY_GPIO_Port, STM_DATA_RDY_Pin, GPIO_PIN_RESET);
-//	if (errorcode == HAL_OK)
-//	{
-//		return 1;
-//	} else {
-//		return 0;
-//	}
-//}
-
 
 /* USER CODE END 4 */
 

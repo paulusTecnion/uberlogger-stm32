@@ -1,3 +1,27 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2025 Tecnion Technologies
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include "adc_comp_lut.h"
 //#include "fixedptc.h"
 #include "esp32_interface.h"
@@ -14,6 +38,7 @@ int32_t q_mul(int32_t a, int32_t b) {
     return result >> Q;
 }
 
+/* 64-bit software divide: expensive on the divide-less Cortex-M0+; runs per-sample. See refactor spec sec. 11 (Phase 2: apply LUT only to decimated samples). */
 int32_t q_div(int32_t a, int32_t b) {
     int64_t result;
 
@@ -25,91 +50,6 @@ int32_t q_div(int32_t a, int32_t b) {
 
 
 
-
-/* Calibration Bas */
-//lut_t ADC_LUT_16_BIT_10V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {145, 367},
-//    {10816, 11124},
-//    {27980, 28427},
-//    {32281, 32760},
-//	{36814, 37093},
-//    {53952, 54359},
-//	{64666, 65153}
-//  };
-//
-//
-//lut_t ADC_LUT_16_BIT_60V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {247, 459},
-//    {16897, 17252},
-//    {29191, 29652},
-//    {32280, 32760},
-//	{35595, 35868},
-//	{47906, 48261},
-//	{64595, 65061}
-//  };
-//
-//lut_t ADC_LUT_12_BIT_10V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {17, 23},
-//    {692, 698},
-//    {1773, 1778},
-//    {2045, 2048},
-//	{2316, 2318},
-//	{3400, 3399},
-//	{4077, 4073}
-//  };
-//
-//lut_t ADC_LUT_12_BIT_60V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {24, 29},
-//    {1074, 1078},
-//    {1883, 1886},
-//    {2045, 2048},
-//	{2207, 2210},
-//	{3020, 3018},
-//	{4075, 4067}
-//  };
-
-/* Calibration R02 */
-//
-//lut_t ADC_LUT_16_BIT_10V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {14, 367},
-//    {10775, 11124},
-//    {27980, 28427},
-//    {32280, 32760},
-//	{36825, 37093},
-//    {54030, 54359},
-//	{64780, 65153}
-//  };
-//
-//
-//lut_t ADC_LUT_16_BIT_60V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {96, 459},
-//    {16833, 17252},
-//    {29191, 29652},
-//    {32285, 32760},
-//	{35600, 35868},
-//	{47970, 48261},
-//	{64739, 65061}
-//  };
-//
-//lut_t ADC_LUT_12_BIT_10V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {8, 23},
-//    {688, 698},
-//    {1776, 1778},
-//    {2049, 2048},
-//	{2321, 2318},
-//	{3410, 3399},
-//	{4090, 4073}
-//  };
-//
-//lut_t ADC_LUT_12_BIT_60V[ADC_LUT_SIZE] = { // LUT is not in Q notation, is converted in the interpolation function
-//    {10, 29},
-//    {1069, 1078},
-//    {1883, 1886},
-//    {2049, 2048},
-//	{2211, 2210},
-//	{3026, 3018},
-//	{4084, 4067}
-//  };
 
 /* Calibration R04 */
 

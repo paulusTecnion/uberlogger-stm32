@@ -16,6 +16,31 @@
   *
   ******************************************************************************
   */
+ /*
+ * MIT License
+ *
+ * Copyright (c) 2025 Tecnion Technologies
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+ 
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -59,18 +84,9 @@ enum {
 	TRIGGER_MODE_EXTERNAL_CONTROL
 };
 
-typedef struct {
-	uint8_t year;
-	uint8_t month;
-	uint8_t date;
-	uint8_t hours;
-	uint8_t minutes;
-	uint8_t seconds;
-	uint8_t padding1;
-	uint8_t padding2;
-	uint32_t subseconds;
-} s_date_time_t;
-
+/* s_date_time_t, the SPI layout #defines, spi_msg_1_t/spi_msg_2_t and their
+ * wire-layout _Static_asserts now live in the shared ul_protocol.h
+ * (included via esp32_interface.h). */
 
 
 /* USER CODE END ET */
@@ -125,15 +141,10 @@ void ADC_Reinit();
 #define STM_ADC_EN_EXTI_IRQn EXTI4_15_IRQn
 
 /* USER CODE BEGIN Private defines */
-// WARNING: DO NOT CHANGE THE NEXT LINES UNLESS YOU KNOW WHAT YOU ARE DOING.
-// BYTES NEED TO BE 4 BYTES ALIGNED!
-#define DATA_LINES_PER_SPI_TRANSACTION  70
-#define ADC_VALUES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*8 // Number of ADC uint16_t per transaction. This is 5 times 480 ADC values
-#define ADC_BYTES_PER_SPI_TRANSACTION ADC_VALUES_PER_SPI_TRANSACTION*2
-#define GPIO_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*1
-#define TIME_BYTES_PER_SPI_TRANSACTION  DATA_LINES_PER_SPI_TRANSACTION*12
-#define START_STOP_NUM_BYTES            2
-
+// The SPI transaction layout defines (DATA_LINES_PER_SPI_TRANSACTION,
+// ADC_*_PER_SPI_TRANSACTION, GPIO/TIME_BYTES_PER_SPI_TRANSACTION,
+// START_STOP_NUM_BYTES) now live in the shared ul_protocol.h (included via
+// esp32_interface.h). The STM-only derived sizes below depend on them.
 
 // Number of bytes when receiving data from the STM
 #define STM_SPI_BUFFERSIZE_DATA_TX      (ADC_BYTES_PER_SPI_TRANSACTION + GPIO_BYTES_PER_SPI_TRANSACTION + TIME_BYTES_PER_SPI_TRANSACTION + START_STOP_NUM_BYTES)
@@ -146,33 +157,8 @@ void ADC_Reinit();
 #define TIME_BUFFERSIZE_BYTES TIME_BYTES_PER_SPI_TRANSACTION*2
 
 
-typedef struct {
-    uint8_t startByte[START_STOP_NUM_BYTES]; // 2
-    uint16_t dataLen;
-    uint8_t padding0[12];
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION]; //12*70 = 840
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION]; // 70
-    uint8_t padding1[2];
-    union
-    {
-        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION]; // 1120
-        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-
-} spi_msg_1_t;
-
-typedef struct {
-    union {
-        uint8_t adcData[ADC_BYTES_PER_SPI_TRANSACTION];
-        uint16_t adcData16[ADC_VALUES_PER_SPI_TRANSACTION];
-    };
-    uint8_t padding1[2];
-    uint8_t gpioData[GPIO_BYTES_PER_SPI_TRANSACTION];
-    s_date_time_t timeData[DATA_LINES_PER_SPI_TRANSACTION];
-    uint8_t padding0[12];
-    uint16_t dataLen;
-    uint8_t stopByte[START_STOP_NUM_BYTES];
-} spi_msg_2_t;
+/* spi_msg_1_t, spi_msg_2_t, and their wire-layout _Static_asserts now live in
+ * the shared ul_protocol.h (included via esp32_interface.h). */
 
 //typedef struct   __attribute__((aligned(4))) {
 //    uint8_t msg_no;

@@ -1,3 +1,27 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2025 Tecnion Technologies
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #ifndef _SPI_CTRL_H
 #define _SPI_CTRL_H
 
@@ -23,9 +47,7 @@ typedef enum spi_ctrl_state_e {
 } spi_ctrl_state_t;
 
 
-void spi_ctrl_receive_abort();
 void spi_ctrl_loop();
-uint8_t spi_ctrl_get_rx_len();
 HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length);
 //HAL_StatusTypeDef spi_ctrl_send_cmd(spi_cmd_esp_t cmd_esp, spi_cmd_resp_t cmd);
 HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length);
@@ -33,8 +55,13 @@ HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length);
 //static void ADC_Set_Single_Acq();
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi);
 uint8_t spi_ctrl_msg_received();
-uint8_t spi_ctrl_msg_sent();
 uint8_t spi_ctrl_isIdle();
+
+/* SPI watchdog (TIM14 TX / TIM16 RX) timeout tick. The single weak
+ * HAL_TIM_PeriodElapsedCallback lives in acquisition.c (it owns TIM3);
+ * it forwards the TIM14/TIM16 cases here so each branch stays with its
+ * owning module. No-op for any other timer. */
+void spi_ctrl_on_timeout_tick(TIM_HandleTypeDef *htim);
 
 
 

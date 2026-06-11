@@ -1,4 +1,28 @@
 /*
+ * MIT License
+ *
+ * Copyright (c) 2025 Tecnion Technologies
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/*
  * esp32_interface.h
  *
  *  Created on: 5 Dec 2022
@@ -7,6 +31,8 @@
 
 #ifndef INC_ESP32_INTERFACE_H_
 #define INC_ESP32_INTERFACE_H_
+
+#include "ul_protocol.h"  // shared SPI protocol: stm32cmd_t, spi_cmd_t, responses
 
 #define MAX_WIFI_SSID_LEN 50
 #define MAX_WIFI_PASSW_LEN 20
@@ -83,46 +109,8 @@ typedef enum log_mode_e {
 } log_mode_t;
 
 
-// enum interface commands with ESP32
-typedef enum  {
-	STM32_CMD_NOP = 0x00,
-	STM32_CMD_SETTINGS_MODE,
-	STM32_CMD_SETTINGS_SYNC,
-	STM32_CMD_MEASURE_MODE,
-	STM32_CMD_SET_RESOLUTION,
-	STM32_CMD_SET_SAMPLE_RATE,
-	STM32_CMD_SET_ADC_CHANNELS_ENABLED,
-	STM32_CMD_SET_DATETIME,
-	STM32_CMD_SINGLE_SHOT_MEASUREMENT,
-	STM32_CMD_SEND_LAST_ADC_BYTES,
-	STM32_CMD_SET_LOGMODE,
-	STM32_CMD_SET_RANGE,
-	STM32_CMD_SET_TRIGGER_MODE,
-	CMD_UNKNOWN
-} spi_cmd_esp_t;
-
-typedef struct {
-    uint8_t command;
-    uint8_t data;
-    uint8_t data1;
-    uint8_t data2;
-    uint8_t data3;
-    uint8_t data4;
-    uint8_t data5;
-    uint8_t data6;
-} spi_cmd_t;
-
-enum   {
-	RESP_OK = 1,
-	RESP_NOK
-};
-
-typedef enum {
-	CMD_RESP_NOP = 0,
-	CMD_RESP_OK,
-	CMD_RESP_NOK
-} spi_cmd_resp_t;
-
-
+// Command set (stm32cmd_t / spi_cmd_esp_t), the 8-byte spi_cmd_t struct, and the
+// response enums (RESP_OK/NOK, spi_cmd_resp_t, STM32_RESP_*) now live in the
+// shared single source of truth ul_protocol.h (included at the top of this file).
 
 #endif /* INC_ESP32_INTERFACE_H_ */
