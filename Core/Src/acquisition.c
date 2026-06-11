@@ -159,6 +159,72 @@ void acq_stop(void)
 	HAL_ADC_Stop_DMA(&hadc1);
 }
 
+/* --- Low-power analog trigger (spec §4.1) -------------------------------- */
+static volatile uint8_t lp_awd_fired = 0;
+
+static const uint32_t lp_adc_chan_map[8] = {
+	ADC_CHANNEL_0, ADC_CHANNEL_1, ADC_CHANNEL_2, ADC_CHANNEL_3,
+	ADC_CHANNEL_4, ADC_CHANNEL_5, ADC_CHANNEL_6, ADC_CHANNEL_7
+}; /* UI channel N -> ADC channel; verify physical AIN order on the bench (Task 7) */
+
+uint16_t acq_last_sample(uint8_t idx)
+{
+	return iirFilter[idx & 0x07];
+}
+
+/* Single-consumer one-shot: only app_run_once() (main loop, no RTOS) calls this,
+ * and the AWD ISR disables its own interrupt before setting the flag, so no
+ * second fire can interleave with the read-clear. If a second consumer or an
+ * RTOS is ever introduced, wrap this in __disable_irq()/__enable_irq(). */
+uint8_t acq_lp_triggered(void)
+{
+	if (lp_awd_fired) { lp_awd_fired = 0; return 1; }
+	return 0;
+}
+
+void acq_lp_arm_analog(uint8_t channel_1based, uint16_t threshold, uint8_t edge)
+{
+	ADC_AnalogWDGConfTypeDef awd = {0};
+
+	if (adc_resolution == ADC_16_BITS)
+		threshold >>= 4;  /* 16-bit mode: AWD compares DR's upper 12 bits; 12-bit mode needs no shift (already 12-bit, clamp below is a guard) */
+	if (threshold > 0x0FFF)
+		threshold = 0x0FFF;
+
+	awd.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
+	awd.WatchdogMode   = ADC_ANALOGWATCHDOG_SINGLE_REG;
+	awd.Channel        = lp_adc_chan_map[(channel_1based - 1) & 0x07];
+	awd.ITMode         = ENABLE;
+	if (edge == 0) {              /* rising-above: out-of-window when DR > threshold */
+		awd.HighThreshold = threshold;
+		awd.LowThreshold  = 0;
+	} else {                      /* falling-below: out-of-window when DR < threshold */
+		awd.HighThreshold = 0x0FFF;
+		awd.LowThreshold  = threshold;
+	}
+
+	/* AWD channel/mode bits require ADSTART=0: briefly stop, configure, restart. */
+	acq_stop();
+	lp_awd_fired = 0;
+	HAL_ADC_AnalogWDGConfig(&hadc1, &awd);
+	HAL_NVIC_SetPriority(ADC1_IRQn, 2, 0);
+	HAL_NVIC_EnableIRQ(ADC1_IRQn);
+	acq_start();
+}
+
+void acq_lp_disarm_analog(void)
+{
+	__HAL_ADC_DISABLE_IT(&hadc1, ADC_IT_AWD1);
+	lp_awd_fired = 0;
+}
+
+void HAL_ADC_LevelOutOfWindowCallback(ADC_HandleTypeDef *hadc)
+{
+	/* One-shot: latch and silence until the next arm. */
+	__HAL_ADC_DISABLE_IT(hadc, ADC_IT_AWD1);
+	lp_awd_fired = 1;
+}
+
 /* Boot-time init: the HAL_ADCEx_Calibration_Start + acq_start + busy=1 block
  * from main()'s USER CODE 2. iir_init() is invoked by main() earlier in the
  * same block (kept there); ordering preserved at the call site. */

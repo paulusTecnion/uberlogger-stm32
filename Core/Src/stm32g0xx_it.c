@@ -273,5 +273,15 @@ void SPI1_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+extern ADC_HandleTypeDef hadc1;
 
+/**
+  * @brief This function handles ADC1 interrupt (analog watchdog, LP trigger).
+  * Hand-written: CubeMX has no ADC IT enabled in the .ioc; keep this in the
+  * USER CODE block so regeneration preserves it.
+  */
+void ADC1_IRQHandler(void)
+{
+  HAL_ADC_IRQHandler(&hadc1);
+}
 /* USER CODE END 1 */
