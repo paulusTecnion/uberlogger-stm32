@@ -49,6 +49,11 @@ typedef enum spi_ctrl_state_e {
 
 void spi_ctrl_loop();
 HAL_StatusTypeDef spi_ctrl_receive(uint8_t* data, size_t length);
+/* Cancel a posted-but-idle receive (and drop any unconsumed message) so a
+ * send can start immediately. Used by the LP trigger path: MAIN_LP_ARMED
+ * keeps a command receive posted while sleeping; on trigger the capture must
+ * stream its first frame without waiting for the TIM16 RX watchdog. */
+void spi_ctrl_cancel_receive(void);
 //HAL_StatusTypeDef spi_ctrl_send_cmd(spi_cmd_esp_t cmd_esp, spi_cmd_resp_t cmd);
 HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length);
 

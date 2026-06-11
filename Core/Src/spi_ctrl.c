@@ -151,6 +151,26 @@ HAL_StatusTypeDef spi_ctrl_send(uint8_t* data, size_t length)
 
 }
 
+void spi_ctrl_cancel_receive(void)
+{
+	/* Drop a completed-but-unconsumed message: the caller is abandoning
+	 * command processing to start streaming (trigger wins; the ESP32 retries
+	 * its command on its own timeout). */
+	CLEAR_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
+
+	if (READ_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING))
+	{
+		/* Mirror of the RX-timeout teardown in spi_ctrl_loop(). */
+		CLEAR_BIT(TIM16->DIER, TIM_DIER_UIE);
+		TIM16->CNT = 0;
+		HAL_SPI_DMAStop(&hspi1);
+		CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RX_TIMEOUT);
+		CLEAR_BIT(spi_ctrl_state, SPI_CTRL_RECEIVING);
+	}
+	_next_spi_state = SPI_CTRL_IDLE;
+	_curr_spi_state = SPI_CTRL_IDLE;
+}
+
 uint8_t spi_ctrl_msg_received()
 {
 	uint8_t result = READ_BIT(spi_ctrl_state, SPI_CTRL_MSG_RECEIVED);
