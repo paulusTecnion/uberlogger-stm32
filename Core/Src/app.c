@@ -155,6 +155,7 @@ void app_init(void)
 	 * at their definitions above (MainState=MAIN_IDLE, etc.); the hardware /
 	 * module pre-loop setup (iir_init, TIM14/16 start, frame_init, acq_init,
 	 * hadc1 backup) intentionally stays in main() to preserve init ordering. */
+	config_lp_bench_force(); /* no-op unless LP_BENCH_FORCE is defined */
 }
 
 
@@ -179,6 +180,22 @@ static uint8_t lp_dispatch_cmd(void)
 		case STM32_CMD_NOP:
 			/* Silently consumed, no response — exact MAIN_IDLE parity. */
 			return 0;
+
+		case STM32_CMD_SEND_LAST_ADC_BYTES:
+		{
+			/* After an LP capture ends the ESP32 collects the final partial
+			 * frame while we already sit in LP_PRECHECK/LP_ARMED. Serve it
+			 * exactly like MAIN_IDLE does, or the capture tail is lost
+			 * (found on the bench: missing last partial frame). */
+			uint8_t *buf; uint16_t len;
+			frame_take_last(&buf, &len, _singleshot, adc_resolution);
+			spi_ctrl_send(buf, len);
+			if (adc_resolution == ADC_16_BITS && (!frame_adc_16b_is_half() || _singleshot))
+			{
+				_singleshot = 0;
+			}
+			return 0;
+		}
 
 		default:
 			resp.command = STM32_CMD_NOP;
@@ -534,6 +551,13 @@ void app_run_once(void)
 				  if (config_lp_source() == 0) acq_lp_disarm_analog();
 				  else                         lp_disarm_digital(config_ext_trigger_input());
 				  lp_armed = 0;
+
+				  /* The armed-state command receive is still posted; without
+				   * cancelling it spi_ctrl stays RECEIVING, every frame send
+				   * returns HAL_BUSY (silently dropped by MAIN_LOGGING),
+				   * DATA_RDY never rises and the ESP32 aborts the session
+				   * with ERR_LOGGER_STM32_TIMEOUT. Found on the bench. */
+				  spi_ctrl_cancel_receive();
 
 				  lp_capturing = 1;
 				  lp_capture_deadline = HAL_GetTick() + (uint32_t)config_lp_duration_s() * 1000u;
